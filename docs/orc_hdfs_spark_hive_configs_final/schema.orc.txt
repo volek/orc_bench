@@ -1,0 +1,17 @@
+struct<
+  userLogin:string,
+  createdAt:timestamp,
+  session:string,
+  userNode:string,
+  module:string,
+  name:string,
+  userName:string,
+  metamodelVersion:string,
+  tags:array<string>,
+  paramOldValue:array<string>,
+  paramName:array<string>,
+  paramValue:array<string>,
+  archiveInternalId:string,
+  archiveInsertTime:timestamp,
+  __time:timestamp
+>

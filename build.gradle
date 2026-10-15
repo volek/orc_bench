@@ -1,0 +1,106 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'orcbench'
+version = '0.1.0-SNAPSHOT'
+
+// Cluster contract: environment.yaml → java 1.8.0_292, spark 3.2.1, hive 3.1.2, hadoop 3.1.3
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    // Align with docs/orc_hdfs_spark_hive_configs_final/environment.yaml
+    sparkVersion = '3.2.1'
+    hadoopVersion = '3.1.3'
+    hiveVersion = '3.1.2'
+    scalaBinary = '2.12'
+}
+
+configurations {
+    compileOnly.extendsFrom(annotationProcessor)
+}
+
+dependencies {
+    // Provided by cluster / spark-submit (SDP 3.5.4.1-1 stack)
+    compileOnly "org.apache.spark:spark-core_${scalaBinary}:${sparkVersion}"
+    compileOnly "org.apache.spark:spark-sql_${scalaBinary}:${sparkVersion}"
+    compileOnly "org.apache.spark:spark-hive_${scalaBinary}:${sparkVersion}"
+    compileOnly "org.apache.hadoop:hadoop-client:${hadoopVersion}"
+
+    implementation 'org.yaml:snakeyaml:2.2'
+    implementation 'info.picocli:picocli:4.7.5'
+    annotationProcessor 'info.picocli:picocli-codegen:4.7.5'
+
+    implementation("org.apache.hive:hive-jdbc:${hiveVersion}") {
+        exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+        exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+        exclude group: 'log4j', module: 'log4j'
+        exclude group: 'org.apache.hadoop'
+        exclude group: 'org.apache.spark'
+    }
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation "org.apache.spark:spark-core_${scalaBinary}:${sparkVersion}"
+    testImplementation "org.apache.spark:spark-sql_${scalaBinary}:${sparkVersion}"
+    testImplementation "org.apache.spark:spark-hive_${scalaBinary}:${sparkVersion}"
+    testImplementation "org.apache.hadoop:hadoop-client:${hadoopVersion}"
+}
+
+application {
+    mainClass = 'orcbench.Main'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // javac 8: use source/target ( --release is Java 9+)
+    sourceCompatibility = '1.8'
+    targetCompatibility = '1.8'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+shadowJar {
+    archiveBaseName.set('orc-bench')
+    archiveClassifier.set('all')
+    mergeServiceFiles()
+    zip64 true
+}
+
+tasks.named('build') {
+    dependsOn shadowJar
+}
+
+tasks.register('verifyJava8') {
+    doLast {
+        def v = System.getProperty('java.version')
+        def major = v.startsWith('1.') ? v.split('\\.')[1] : v.split('\\.')[0]
+        if (major != '8') {
+            throw new org.gradle.api.GradleException(
+                    "Build must run on Java 8 (environment.yaml: java 1.8.0_292). Current: ${v}. " +
+                    "Set JAVA_HOME to a JDK 8 installation.")
+        }
+        logger.lifecycle("Building with Java ${v} (target bytecode 1.8)")
+    }
+}
+
+tasks.named('compileJava') { dependsOn verifyJava8 }
+
+// Bundle conf/ (contract from docs/orc_hdfs_spark_hive_configs_final) into jar
+sourceSets {
+    main {
+        resources {
+            srcDirs = ['src/main/resources', 'conf']
+        }
+    }
+}

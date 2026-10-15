@@ -1,0 +1,81 @@
+# Confirmed facts from cluster output, unknowns preserved as null.
+environment:
+  id: sdp_3_5_4_1_1
+  time_zone: UTC
+  versions:
+    java: 1.8.0_292
+    hadoop: 3.1.3.3.5.4.1-1
+    orc_writer: null
+    spark: 3.2.1.3.5.4.1-1
+    hive: 3.1.2.3.5.4.1-1
+    tez: 0.9.1.3.5.4.1-1
+    llap: null
+    scala: 2.12.15
+    orc_spark: null
+    orc_hive: null
+    orc_generator: null
+  hdfs:
+    namenode_uri: null
+    default_replication: null
+    block_size_mib: null
+    free_space_gib: null
+    short_circuit_read:
+      supported: null
+      enabled: null
+      mutable_by_runner: false
+    centralized_cache:
+      supported: null
+      mutable_by_runner: false
+    data_locality_verifiable: null
+  yarn:
+    resource_manager: null
+    queue: benchmark
+    available_memory_gib: null
+    available_vcores: null
+  spark:
+    master: yarn
+    deploy_mode: cluster
+    executor_instances: null
+    executor_cores: null
+    executor_memory_gib: null
+    enable_hive_support: null
+  hive:
+    jdbc_url: null
+    tez_available: true
+    llap_available: null
+    llap_daemons: null
+    llap_cache_gib: null
+    materialized_views_supported: null
+    bucket_version: null
+    llap_app_name: llap0
+    llap_execution_mode: only
+    execution_mode_reported: llap
+    orc_split_strategy: HYBRID
+    llap_daemons_running_verified: null
+    jdbc_connection_verified: true
+    llap_configured: true
+    observed_properties:
+      hive.execution.mode: llap
+      hive.llap.execution.mode: only
+      hive.exec.orc.split.strategy: HYBRID
+    connection:
+      type: beeline
+      service_discovery: zooKeeper
+      zooKeeperNamespace: hiveserver2
+      jdbc_url: jdbc:hive2://omlt-abyss-sdp-namenode-01.opsmon.sbt:2181,omlt-abyss-sdp-namenode-02.opsmon.sbt:2181,omlt-abyss-sdp-srv-01.opsmon.sbt:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2
+      verified: true
+  operations:
+    permission_to_reset_caches: false
+    permission_to_change_cluster_config: false
+    metrics_export_available: null
+    allow_production_cluster_changes: false
+  preflight:
+    require_exact_versions: true
+    require_hdfs_capacity_check: true
+    require_feature_probe: true
+    fail_if_required_capability_missing: false
+    mark_unavailable_experiments_as_skipped: true
+    require_tez_version_probe: false
+    require_java8_runtime_check: true
+  versions_note: Tez 0.9.1.3.5.4.1-1 confirmed by tez-api pom.properties; Hive JDBC connection verified; LLAP is configured
+    as only with app name llap0 but live daemon state is unverified; ORC runtime JAR versions unknown.

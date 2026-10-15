@@ -1,0 +1,14 @@
+.gradle/
+build/
+# Keep released fat jar in repo for cluster deploy
+!build/libs/
+!build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar
+bin/
+out/
+.idea/
+*.iml
+*.log
+.DS_Store
+results/
+generated/
+conf/environment.local.yaml

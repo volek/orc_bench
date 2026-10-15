@@ -1,0 +1,35 @@
+# Copy to environment.local.yaml and fill nulls discovered on the cluster.
+# Usage: --env-override conf/environment.local.yaml
+environment:
+  versions:
+    orc_writer: null
+    orc_spark: null
+    orc_hive: null
+    orc_generator: null
+    llap: null
+  hdfs:
+    namenode_uri: hdfs://omlt-abyss-sdp-namenode-01.opsmon.sbt:8020
+    default_replication: 3
+    block_size_mib: 128
+    free_space_gib: null
+    short_circuit_read:
+      supported: null
+      enabled: null
+    centralized_cache:
+      supported: null
+    data_locality_verifiable: null
+  yarn:
+    resource_manager: null
+    available_memory_gib: null
+    available_vcores: null
+  spark:
+    executor_instances: 4
+    executor_cores: 4
+    executor_memory_gib: 8
+    enable_hive_support: true
+  hive:
+    llap_available: true
+    llap_daemons: null
+    llap_cache_gib: null
+    materialized_views_supported: null
+    llap_daemons_running_verified: null

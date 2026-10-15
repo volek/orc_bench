@@ -1,0 +1,299 @@
+# SQL scenario contracts: nested arrays verified, partition columns must be derived.
+query_suite:
+  id: audit_queries
+  spec_version: 1
+  defaults:
+    table: events
+    time_start: '2026-01-15 00:00:00'
+    time_end: '2026-01-16 00:00:00'
+    date_value: '2026-01-15'
+  parameter_source: dataset_manifest_query_samples
+  dialects:
+  - spark_3_2
+  - hive_tez
+  source_schema_status: verified_native_arrays
+  baseline_representation: RAW_ARRAY
+  column_contract:
+    original_schema: schema.orc.txt
+    event_date: derived_only_for_partitioned_layouts
+    EPK_ID: located_by_matching_paramName_and_paramValue_position
+    raw_arrays: array<string>
+  sql_template_escaping: runner_must_escape_and_quote_values_by_dialect
+queries:
+- id: Q01
+  description: RAW baseline time filter; cannot reference event_date which is absent in physical raw schema
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  - FLAT
+  sql: "SELECT COUNT(*) FROM ${table}\nWHERE __time >= TIMESTAMP '${time_start}'\n  AND __time < TIMESTAMP '${time_end}'\n"
+- id: Q01_PARTITIONED
+  description: Partition pruning on derived event_date; only use tables physically partitioned by date
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  - FLAT
+  requires:
+  - partition_column_event_date
+  sql: 'SELECT COUNT(*) FROM ${table}
+
+    WHERE event_date = DATE ''${date_value}''
+
+    '
+- id: Q02
+  description: scalar equality with high selectivity
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT userLogin, createdAt FROM ${table}
+
+    WHERE userLogin = ''${user_login}''
+
+    '
+- id: Q03
+  description: session equality
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT session, createdAt FROM ${table}
+
+    WHERE session = ''${session_id_outer}''
+
+    '
+- id: Q04
+  description: low cardinality name filter
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT COUNT(*) FROM ${table}
+
+    WHERE name = ''LOGON''
+
+    '
+- id: Q05
+  description: IN condition on scalar values
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT COUNT(*) FROM ${table}
+
+    WHERE userLogin IN (''${user_login_a}'', ''${user_login_b}'', ''${user_login_c}'')
+
+    '
+- id: Q06
+  description: timestamp range; separate version with partition filter required
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: "SELECT COUNT(*) FROM ${table}\nWHERE createdAt >= TIMESTAMP '${time_start}'\n  AND createdAt < TIMESTAMP '${time_end}'\n"
+- id: Q06_PARTITIONED
+  description: Time range plus explicit partition filter on derived event_date
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  - FLAT
+  requires:
+  - partition_column_event_date
+  sql: "SELECT COUNT(*) FROM ${table}\nWHERE event_date = DATE '${date_value}'\n  AND createdAt >= TIMESTAMP '${time_start}'\n\
+    \  AND createdAt < TIMESTAMP '${time_end}'\n"
+- id: Q07_NARROW
+  description: column pruning narrow projection
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT userLogin, createdAt FROM ${table}
+
+    WHERE name = ''LOGON''
+
+    '
+- id: Q07_WIDE
+  description: column pruning full row projection
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT * FROM ${table}
+
+    WHERE name = ''LOGON''
+
+    '
+- id: Q08
+  description: aggregation low cardinality
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT name, COUNT(*) FROM ${table}
+
+    GROUP BY name
+
+    '
+- id: Q09
+  description: multi-group aggregation
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: "SELECT module, userNode, COUNT(*) FROM ${table}\nWHERE createdAt >= TIMESTAMP '${time_start}'\n  AND createdAt\
+    \ < TIMESTAMP '${time_end}'\nGROUP BY module, userNode\n"
+- id: Q10
+  description: join with user/module lookup table
+  representations:
+  - RAW_ARRAY
+  - MAP
+  - HYBRID
+  sql: 'SELECT e.module, COUNT(*) FROM ${table} e
+
+    JOIN ${module_dictionary_table} d ON e.module = d.id
+
+    WHERE d.type = ''${type_value}''
+
+    GROUP BY e.module
+
+    '
+- id: Q11_DPP
+  description: partition key join for DPP, not ordinary lookup join
+  representations:
+  - HYBRID
+  sql: 'SELECT COUNT(*) FROM ${table} e
+
+    JOIN ${date_dimension_table} d ON e.event_date = d.event_date
+
+    WHERE d.category = ''${date_category}''
+
+    '
+  requires:
+  - date_partitioned_table
+  - partition_dimension_join
+- id: Q11
+  description: EPK_ID equality in extracted column
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT userLogin, createdAt FROM ${table}
+
+    WHERE epk_id = ''${epk_id}''
+
+    '
+- id: Q12
+  description: SESSION_ID equality in extracted column
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT userLogin, session FROM ${table}
+
+    WHERE session_id = ''${nested_session_id}''
+
+    '
+- id: Q13
+  description: IP_ADDRESS nested parameter flattened
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT userLogin, createdAt FROM ${table}
+
+    WHERE ip_address = ''${ip_address}''
+
+    '
+- id: Q14
+  description: combined nested scalar predicates
+  representations:
+  - FLAT
+  - HYBRID
+  sql: "SELECT userLogin, createdAt FROM ${table}\nWHERE epk_id = '${epk_id}'\n  AND session_id = '${nested_session_id}'\n"
+- id: Q15
+  description: JSON field already extracted from MOBILE_SDK_DATA
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT userLogin FROM ${table}
+
+    WHERE device_system_name = ''${device_system_name}''
+
+    '
+- id: Q16
+  description: aggregate nested identifier
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT epk_id, COUNT(*) FROM ${table}
+
+    GROUP BY epk_id
+
+    '
+- id: Q17
+  description: join on EPK_ID
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT e.epk_id, COUNT(*) FROM ${table} e
+
+    JOIN ${epk_dictionary_table} d ON e.epk_id = d.id
+
+    WHERE d.type = ''${type_value}''
+
+    GROUP BY e.epk_id
+
+    '
+- id: Q18
+  description: repeated aggregate for materialized view rewrite
+  representations:
+  - FLAT
+  - HYBRID
+  sql: 'SELECT name, COUNT(*) AS event_count
+
+    FROM ${table}
+
+    GROUP BY name
+
+    '
+- id: NP_ARRAY_EPK_SPARK
+  description: array position lookup in Spark 3.2; array_position and element_at use 1-based positions
+  dialects:
+  - spark_3_2
+  representations:
+  - RAW_ARRAY
+  sql: "SELECT userLogin, createdAt FROM ${table}\nWHERE array_contains(paramName, 'EPK_ID')\n  AND element_at(paramValue,\
+    \ array_position(paramName, 'EPK_ID')) = '${epk_id}'\n"
+- id: NP_ARRAY_EPK_HIVE
+  description: Hive array lookup using positional expansion
+  dialects:
+  - hive_tez
+  representations:
+  - RAW_ARRAY
+  sql: "SELECT e.userLogin, e.createdAt FROM ${table} e\nLATERAL VIEW posexplode(e.paramName) p AS pos, param_key\n\
+    WHERE p.param_key = 'EPK_ID'\n  AND e.paramValue[p.pos] = '${epk_id}'\n"
+- id: NP_MAP_EPK
+  description: map lookup, check execution support per engine
+  representations:
+  - MAP
+  sql: 'SELECT userLogin, createdAt FROM ${table}
+
+    WHERE params[''EPK_ID''] = ''${epk_id}''
+
+    '
+- id: NP_MAP_JSON
+  description: parse nested JSON within map; actual parse support must be verified
+  representations:
+  - MAP
+  sql: 'SELECT userLogin FROM ${table}
+
+    WHERE get_json_object(params[''MOBILE_SDK_DATA''], ''$.DeviceSystemName'') = ''${device_system_name}''
+
+    '
+- id: NP_RAW_ARRAY
+  description: Canonical native array<string> positional lookup; use Spark/Hive dialect-specific templates
+  representations:
+  - RAW_ARRAY
+  requires:
+  - nested_sql_dialect_variant
+  sql: null
