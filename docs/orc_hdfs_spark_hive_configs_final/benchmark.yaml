@@ -1,11 +1,13 @@
-# Cross-layer ORC/HDFS/Spark 3.2/Hive 3.1 R&D; YAML is a proposed benchmark runner contract.
+# Cross-layer ORC/HDFS/Spark 3.2/Hive 3.1 R&D; YAML is a benchmark runner contract.
+# spec_version 2 (2026-10-16): stage-2 decisions 2.1-2.15 approved (2.14 by dev);
+# environment facts live only in environment.yaml (2.15); single root key (2.13).
 benchmark:
   id: audit_orc_hdfs_spark_hive
-  spec_version: 1
+  spec_version: 2
   sla_mean_latency_ms: 3000
   isolation: one_variable_at_a_time_then_best_combinations
   require_result_equivalence: true
-  hdfs_root: /benchmarks/audit_orc
+  hdfs_root: /orc_test
   generated_hive_ddl: generated/hive-table.sql
   derived_partition_columns:
   - event_date
@@ -15,433 +17,579 @@ benchmark:
   raw_array_schema_verified: true
   vendor_specific_version_validation: true
   configuration_basis: real_orc_footer_plus_confirmed_sdp_cluster
-  tez_version: 0.9.1.3.5.4.1-1
-  llap_configured_mode: only
-  llap_running_verified: null
-inputs:
-  schema: schema.orc.txt
-  dataset: dataset.yaml
-  environment: environment.yaml
-  queries: query-suite.yaml
-physical_baseline:
-  id: RAW_ARRAY_BASE
-  representation: RAW_ARRAY
-  partitioning: []
-  bucketing: null
-  sorting: []
-  target_file_size_mib: 256
-  orc:
-    compression: SNAPPY
-    stripe_size_mib: 64
-    create_index: true
-    row_index_stride: 10000
-    bloom:
-      columns: []
-      fpp: 0.01
-    verified_from_source:
+  environment_facts_source: environment.yaml (single source per decision 2.15)
+  inputs:
+    schema: schema.orc.txt
+    dataset: dataset.yaml
+    environment: environment.yaml
+    queries: query-suite.yaml
+  physical_baseline:
+    id: RAW_ARRAY_BASE
+    representation: RAW_ARRAY
+    partitioning: []
+    bucketing: null
+    sorting: []
+    target_file_size_mib: 256
+    orc:
       compression: SNAPPY
+      stripe_size_mib: 64
+      create_index: true
       row_index_stride: 10000
-    stripe_size_mib_proposed_not_confirmed: 64
-representations:
-  PAIRS:
-    transform: zip_native_parallel_arrays_as_ordered_struct_array
-    params_type: array<struct<name:string,value:string>>
-    lossless_if:
-    - aligned_arrays
-    - preserves_order
-    - preserves_duplicates
-  MAP:
-    transform: zip_native_parallel_arrays_into_map
-    params_type: map<string,string>
-    requires:
-    - no_duplicate_parameter_names
-  FLAT:
-    transform: extract_selected_scalar_columns_from_native_arrays
-    columns:
-    - epk_id
-    - session_id
-    - operation_uid
-    - channel_type
-    - vsp_code
-    - osb_code
-    - tb_code
-    - ip_address
-    - device_system_name
-    keep_original_parameters: false
-    lossless: false
-  HYBRID:
-    transform: retain_native_arrays_plus_selected_scalar_columns
-    columns:
-    - epk_id
-    - session_id
-    - operation_uid
-    - channel_type
-    - vsp_code
-    - osb_code
-    - tb_code
-    - ip_address
-    - device_system_name
-    keep_original_parameters: true
-    lossless: true
-  RAW_ARRAY:
-    schema_source: schema.orc.txt
-    physical_types: as_declared
-    serialization: native_orc_array_string
-    lossless: true
-    immutable_source_baseline: true
-physical_experiments:
-- id: ORC_COLUMN_PRUNING
-  kind: query_only
-  based_on: RAW_ARRAY_BASE
-  queries:
-  - Q07_NARROW
-  - Q07_WIDE
-- id: ORC_PUSHDOWN
-  kind: reader_settings
-  based_on: RAW_ARRAY_BASE
-  variants:
-  - false
-  - true
-  queries:
-  - Q02
-  - Q03
-  - Q05
-  - Q06
-- id: MINMAX_SORT
-  kind: rewrite
-  based_on: RAW_ARRAY_BASE
-  factor: sorting
-  values:
-  - []
-  - - userLogin
-  - - session
-  - - __time
-    - userLogin
-- id: BLOOM_USER
-  kind: rewrite
-  based_on: RAW_ARRAY_BASE
-  factor: bloom_columns
-  values:
-  - []
-  - - userLogin
-  - - session
-  - - userLogin
-    - session
-- id: BLOOM_FPP
-  kind: rewrite
-  based_on: RAW_ARRAY_BASE
-  factor: bloom_fpp
-  values:
-  - 0.05
-  - 0.01
-  - 0.001
-  requires_bloom_columns:
-  - userLogin
-- id: ROW_INDEX
-  kind: rewrite
-  based_on: RAW_ARRAY_BASE
-  factor: row_index_stride
-  values:
-  - 5000
-  - 10000
-  - 20000
-  - 50000
-- id: STRIPE_SIZE
-  kind: rewrite
-  based_on: RAW_ARRAY_BASE
-  factor: stripe_size_mib
-  values:
-  - 64
-  - 128
-  - 256
-- id: COMPRESSION
-  kind: rewrite
-  based_on: RAW_ARRAY_BASE
-  factor: compression
-  values:
-  - ZLIB
-  - SNAPPY
-  - ZSTD
-- id: PARTITIONING
-  kind: rewrite
-  factor: partition_columns
-  values:
-  - []
-  - - event_date
-  - - event_date
-    - event_hour
-- id: BUCKETING
-  kind: hive_compatible_write
-  factor: bucket_count
-  values:
-  - 0
-  - 32
-  bucket_key: epk_id
-  representation: HYBRID
-- id: FILE_SIZES
-  kind: rewrite
-  factor: target_file_size_mib
-  values:
-  - 32
-  - 256
-  - 1024
-- id: SHORT_CIRCUIT
-  kind: cluster_read
-  variants:
-  - false
-  - true
-  requires:
-  - hdfs_short_circuit_supported
-  - client_datanode_colocation
-- id: HDFS_CACHE
-  kind: cluster_read
-  variants:
-  - cold
-  - naturally_warm
-  - centralized
-  requires_for_centralized:
-  - centralized_cache_supported
-- id: NESTED_REPRESENTATIONS
-  kind: rewrite
-  factor: representation
-  values:
-  - RAW_ARRAY
-  - PAIRS
-  - MAP
-  - FLAT
-  - HYBRID
-  queries:
-  - Q11
-  - Q12
-  - Q13
-  - Q14
-  - Q15
-  - Q16
-  - Q17
-- id: NESTED_SCALAR_BLOOM
-  kind: rewrite
-  representation: HYBRID
-  factor: bloom_columns
-  values:
-  - []
-  - - epk_id
-  - - epk_id
-    - session_id
-- id: NESTED_SCALAR_SORT
-  kind: rewrite
-  representation: HYBRID
-  factor: sorting
-  values:
-  - []
-  - - epk_id
-  - - __time
-    - epk_id
-- id: DATE_PARTITION_QUERY
-  kind: derived_layout_query
-  requires:
-  - derived_event_date_partition
-  queries:
-  - Q01_PARTITIONED
-  - Q06_PARTITIONED
-execution_baselines:
-  spark:
-    spark.sql.orc.impl: native
-    spark.sql.orc.enableVectorizedReader: true
-    spark.sql.orc.filterPushdown: true
-    spark.sql.adaptive.enabled: true
-    spark.sql.optimizer.dynamicPartitionPruning.enabled: true
-    spark.sql.orc.enableNestedColumnVectorizedReader: false
-    spark.sql.hive.convertMetastoreOrc: true
-  hive:
-    hive.execution.engine: tez
-    hive.vectorized.execution.enabled: true
-    hive.cbo.enable: true
-    hive.llap.execution.mode: only
-    comment: Observed LLAP mode=only. HIVE_TEZ_BASE must explicitly override to none, subject to session override
-      permissions.
-engine_experiments:
-  spark:
-  - id: SPARK_VECTORIZATION
-    property: spark.sql.orc.enableVectorizedReader
-    values:
-    - false
-    - true
+      bloom:
+        columns: []
+        fpp: 0.01
+      verified_from_source:
+        compression: SNAPPY
+        row_index_stride: 10000
+      stripe_size_mib_proposed_not_confirmed: 64
+  representations:
+    PAIRS:
+      transform: zip_native_parallel_arrays_as_ordered_struct_array
+      params_type: array<struct<name:string,value:string>>
+      lossless_if:
+      - aligned_arrays
+      - preserves_order
+      - preserves_duplicates
+    MAP:
+      transform: zip_native_parallel_arrays_into_map
+      params_type: map<string,string>
+      requires:
+      - no_duplicate_parameter_names
+    FLAT:
+      transform: extract_selected_scalar_columns_from_native_arrays
+      columns:
+      - epk_id
+      - session_id
+      - operation_uid
+      - channel_type
+      - vsp_code
+      - osb_code
+      - tb_code
+      - ip_address
+      - device_system_name
+      keep_original_parameters: false
+      lossless: false
+    HYBRID:
+      transform: retain_native_arrays_plus_selected_scalar_columns
+      columns:
+      - epk_id
+      - session_id
+      - operation_uid
+      - channel_type
+      - vsp_code
+      - osb_code
+      - tb_code
+      - ip_address
+      - device_system_name
+      keep_original_parameters: true
+      lossless: true
+    RAW_ARRAY:
+      schema_source: schema.orc.txt
+      physical_types: as_declared
+      serialization: native_orc_array_string
+      lossless: true
+      immutable_source_baseline: true
+  hive_registration:
+    approved: dev, 2026-10-16
+    database: bench
+    fact_tables:
+      pattern: bench.events__{scale}__{experiment}__{variant}
+      scale_token: lower-case s|m|l
+      experiment_token: lower-case experiment id
+      variant_token: v0..vN in contract value order; single-layout experiments use v0
+    reference_tables:
+      module_dictionary: bench.module_dictionary
+      epk_dictionary: bench.epk_dictionary
+      partition_dates: bench.partition_dates
+    placeholder_binding:
+      table: fact table of current experiment/variant
+      module_dictionary_table: bench.module_dictionary
+      epk_dictionary_table: bench.epk_dictionary
+      date_dimension_table: bench.partition_dates
+    ddl_execution:
+      file: generated/hive-table.sql (relative to runner working dir, regenerated on prepare)
+      generator: runner
+      executor: runner via JDBC (kerberos ticket) before Hive stage; Spark reads same metastore via spark_catalog
+      mode: drop_and_create per variant (idempotent on resume)
+      permission_verified: environment hive.ddl_execution_verified (probe 2026-10-16)
+    bucketing_mode: managed_hive_table written by Hive-on-Tez, data under {hdfs_root}/layouts/...
+    lifecycle: tables of cleaned layouts dropped together with layout (execution_policy, 2.7)
+  physical_experiments:
+  - id: ORC_COLUMN_PRUNING
+    kind: query_only
+    based_on: RAW_ARRAY_BASE
     queries:
     - Q07_NARROW
     - Q07_WIDE
-    - Q08
-  - id: SPARK_AQE
-    property: spark.sql.adaptive.enabled
-    values:
+  - id: ORC_PUSHDOWN
+    kind: reader_settings
+    based_on: RAW_ARRAY_BASE
+    variants:
     - false
     - true
-    queries:
-    - Q08
-    - Q09
-    - Q10
-  - id: SPARK_DPP
-    property: spark.sql.optimizer.dynamicPartitionPruning.enabled
-    values:
-    - false
-    - true
-    queries:
-    - Q11_DPP
-  - id: SPARK_CBO
-    property: spark.sql.cbo.enabled
-    values:
-    - false
-    - true
-    queries:
-    - Q09
-    - Q10
-  - id: SPARK_BROADCAST
-    property: spark.sql.autoBroadcastJoinThreshold
-    values:
-    - -1
-    - 10485760
-    queries:
-    - Q10
-  - id: SPARK_ORC_READER
-    property: spark.sql.orc.impl
-    values:
-    - native
-    - hive
     queries:
     - Q02
-    - Q07_NARROW
-  - id: SPARK_NESTED_VECTORIZATION
-    property: spark.sql.orc.enableNestedColumnVectorizedReader
+    - Q03
+    - Q05
+    - Q06
+  - id: MINMAX_SORT
+    kind: rewrite
+    based_on: RAW_ARRAY_BASE
+    factor: sorting
     values:
+    - []
+    - - userLogin
+    - - session
+    - - __time
+      - userLogin
+    queries: &id001
+    - Q02
+    - Q03
+    - Q04
+    - Q07_NARROW
+    - Q08
+    engine: SPARK_BASE
+  - id: BLOOM_USER
+    kind: rewrite
+    based_on: RAW_ARRAY_BASE
+    factor: bloom_columns
+    values:
+    - []
+    - - userLogin
+    - - session
+    - - userLogin
+      - session
+    queries: *id001
+    engine: SPARK_BASE
+  - id: BLOOM_FPP
+    kind: rewrite
+    based_on: RAW_ARRAY_BASE
+    factor: bloom_fpp
+    values:
+    - 0.05
+    - 0.01
+    - 0.001
+    requires_bloom_columns:
+    - userLogin
+    queries: *id001
+    engine: SPARK_BASE
+  - id: ROW_INDEX
+    kind: rewrite
+    based_on: RAW_ARRAY_BASE
+    factor: row_index_stride
+    values:
+    - 5000
+    - 10000
+    - 20000
+    - 50000
+    queries: *id001
+    engine: SPARK_BASE
+  - id: STRIPE_SIZE
+    kind: rewrite
+    based_on: RAW_ARRAY_BASE
+    factor: stripe_size_mib
+    values:
+    - 64
+    - 128
+    - 256
+    queries: *id001
+    engine: SPARK_BASE
+  - id: COMPRESSION
+    kind: rewrite
+    based_on: RAW_ARRAY_BASE
+    factor: compression
+    values:
+    - ZLIB
+    - SNAPPY
+    - ZSTD
+    queries: *id001
+    engine: SPARK_BASE
+  - id: PARTITIONING
+    kind: rewrite
+    factor: partition_columns
+    values:
+    - []
+    - - event_date
+    - - event_date
+      - event_hour
+    based_on: RAW_ARRAY_BASE
+    queries:
+    - Q02
+    - Q03
+    - Q04
+    - Q07_NARROW
+    - Q08
+    - Q01_PARTITIONED
+    - Q06_PARTITIONED
+    engine: SPARK_BASE
+  - id: BUCKETING
+    kind: hive_compatible_write
+    factor: bucket_count
+    values:
+    - 0
+    - 32
+    bucket_key: epk_id
+    representation: HYBRID
+    queries:
+    - Q11
+    - Q17
+    engine: SPARK_BASE
+  - id: FILE_SIZES
+    kind: rewrite
+    factor: target_file_size_mib
+    values:
+    - 32
+    - 256
+    - 1024
+    based_on: RAW_ARRAY_BASE
+    queries: *id001
+    engine: SPARK_BASE
+  - id: SHORT_CIRCUIT
+    kind: cluster_read
+    variants:
     - false
     - true
+    requires:
+    - hdfs_short_circuit_supported
+    - client_datanode_colocation
+    queries:
+    - Q07_WIDE
+    engine: SPARK_BASE
+  - id: HDFS_CACHE
+    kind: cluster_read
+    variants:
+    - cold
+    - naturally_warm
+    - centralized
+    requires_for_centralized:
+    - centralized_cache_supported
+    queries:
+    - Q07_WIDE
+    engine: SPARK_BASE
+  - id: NESTED_REPRESENTATIONS
+    kind: rewrite
+    factor: representation
+    values:
+    - RAW_ARRAY
+    - MAP
+    - FLAT
+    - HYBRID
     queries:
     - Q11
     - Q12
-    - NP_ARRAY_EPK_SPARK
-    requires:
-    - native_orc_reader
-    - nested_columns
-  hive:
-  - id: HIVE_VECTORIZATION
-    property: hive.vectorized.execution.enabled
-    values:
-    - false
-    - true
-    queries:
-    - Q02
-    - Q08
-    - Q09
-  - id: HIVE_CBO
-    property: hive.cbo.enable
-    values:
-    - false
-    - true
-    queries:
-    - Q09
-    - Q10
-  - id: HIVE_TEZ_BASE
-    engine: tez
-    llap: false
-    queries:
-    - Q01
-    - Q02
-    - Q08
-    - Q09
-    - Q10
-    session_overrides:
-      hive.llap.execution.mode: none
-    requires:
-    - hive_session_allows_mode_override
-  - id: HIVE_LLAP
-    engine: tez
-    llap: true
-    cache_states:
-    - cold
-    - warm
-    queries:
-    - Q01
-    - Q02
-    - Q08
-    - Q09
-    - Q10
+    - Q13
+    - Q14
     - Q15
-    session_overrides:
-      hive.llap.execution.mode: only
-    requires:
-    - llap_daemons_running
-    - llap_task_execution_verified
-  - id: HIVE_LLAP_CACHE
-    engine: tez
-    llap: true
-    working_set_fractions:
-    - 0.25
-    - 0.5
-    - 1.0
-    session_overrides:
-      hive.llap.execution.mode: only
-    requires:
-    - llap_daemons_running
-    - llap_task_execution_verified
-  - id: HIVE_MATERIALIZED_VIEW
-    requires:
-    - materialized_views_supported
+    - Q16
+    - Q17
+    engine: SPARK_BASE
+    representation_rewrites_ref: query_suite.representation_rewrites (2.2)
+    based_on: RAW_ARRAY_BASE
+  - id: NESTED_SCALAR_BLOOM
+    kind: rewrite
+    representation: HYBRID
+    factor: bloom_columns
+    values:
+    - []
+    - - epk_id
+    - - epk_id
+      - session_id
+    based_on: RAW_ARRAY_BASE
     queries:
-    - Q18
-  - id: HIVE_LLAP_PREFLIGHT
+    - Q11
+    - Q14
+    engine: SPARK_BASE
+  - id: NESTED_SCALAR_SORT
+    kind: rewrite
+    representation: HYBRID
+    factor: sorting
+    values:
+    - []
+    - - epk_id
+    - - __time
+      - epk_id
+    based_on: RAW_ARRAY_BASE
+    queries:
+    - Q11
+    - Q14
+    engine: SPARK_BASE
+  - id: DATE_PARTITION_QUERY
+    kind: derived_layout_query
     requires:
-    - tez_version_verified
-    - llap_daemons_available
-    on_missing: skip_not_fail
-final_comparison:
-  physical_dataset: BEST_ORC
-  engines:
-  - SPARK_BASE
-  - SPARK_OPTIMIZED
-  - HIVE_TEZ_BASE
-  - HIVE_TEZ_OPTIMIZED
-  - HIVE_LLAP_COLD
-  - HIVE_LLAP_WARM
-  require_identical_file_manifest: true
-  require_equal_query_results: true
-runs:
-  warmup_per_query: 5
-  measured_per_query: 30
-  concurrency_levels:
-  - 1
-  - 5
-  - 10
-  - 25
-  - 50
-  cache_states_not_aggregated: true
-  record_explain_plans: true
-  compare_complete_results: true
-  timing_scope: driver_submit_to_complete_result_consumption
-metrics:
-  required:
-  - latency_ms
-  - status
-  - result_hash
-  - logical_rows
-  - orc_file_bytes
-  - hdfs_bytes_read
-  - engine_plan
-  optional:
-  - p50_ms
-  - p95_ms
-  - p99_ms
-  - rows_read
-  - files_opened
-  - partitions_selected
-  - cpu_ms
-  - shuffle_read_bytes
-  - shuffle_write_bytes
-  - spill_bytes
-  - cache_hit_ratio
-  unavailable_metric_value: null
-  sla_success_threshold_ms: 3000
-configuration_validation:
-  reject_query_referencing_missing_column: true
-  require_reader_profile_override_applied: true
-  require_identical_canonical_row_hash_across_variants: true
-  require_physical_manifest_for_final_engine_comparison: true
-  require_nested_parameter_alignment: true
+    - derived_event_date_partition
+    queries:
+    - Q01_PARTITIONED
+    - Q06_PARTITIONED
+  execution_baselines:
+    spark:
+      spark.sql.orc.impl: native
+      spark.sql.orc.enableVectorizedReader: true
+      spark.sql.orc.filterPushdown: true
+      spark.sql.adaptive.enabled: true
+      spark.sql.optimizer.dynamicPartitionPruning.enabled: true
+      spark.sql.orc.enableNestedColumnVectorizedReader: false
+      spark.sql.hive.convertMetastoreOrc: true
+    hive:
+      hive.execution.engine: tez
+      hive.vectorized.execution.enabled: true
+      hive.cbo.enable: true
+      hive.llap.execution.mode: only
+      comment: Observed LLAP mode=only. HIVE_TEZ_BASE must explicitly override to none, subject to session override
+        permissions.
+  engine_profiles:
+    SPARK_BASE:
+      extends: execution_baselines.spark
+    SPARK_OPTIMIZED:
+      extends: execution_baselines.spark
+      set:
+        spark.sql.cbo.enabled: 'true'
+        spark.sql.autoBroadcastJoinThreshold: 10485760
+        spark.sql.orc.enableNestedColumnVectorizedReader: true
+      prepare: ANALYZE TABLE on participating tables
+    HIVE_TEZ_BASE:
+      extends: execution_baselines.hive
+      set:
+        hive.llap.execution.mode: none
+    HIVE_TEZ_OPTIMIZED:
+      status: excluded_from_final
+      reason: baseline already enables vectorization+CBO; no distinct lever defined (decision 2026-10-16)
+    HIVE_LLAP_COLD:
+      extends: execution_baselines.hive
+      set:
+        hive.llap.execution.mode: only
+      cache_state: cold (cache_state_definitions)
+    HIVE_LLAP_WARM:
+      extends: execution_baselines.hive
+      set:
+        hive.llap.execution.mode: only
+      cache_state: warm (cache_state_definitions)
+  engine_experiments:
+    spark:
+    - id: SPARK_VECTORIZATION
+      property: spark.sql.orc.enableVectorizedReader
+      values:
+      - false
+      - true
+      queries:
+      - Q07_NARROW
+      - Q07_WIDE
+      - Q08
+    - id: SPARK_AQE
+      property: spark.sql.adaptive.enabled
+      values:
+      - false
+      - true
+      queries:
+      - Q08
+      - Q09
+      - Q10
+    - id: SPARK_DPP
+      property: spark.sql.optimizer.dynamicPartitionPruning.enabled
+      values:
+      - false
+      - true
+      queries:
+      - Q11_DPP
+    - id: SPARK_CBO
+      property: spark.sql.cbo.enabled
+      values:
+      - false
+      - true
+      queries:
+      - Q09
+      - Q10
+    - id: SPARK_BROADCAST
+      property: spark.sql.autoBroadcastJoinThreshold
+      values:
+      - -1
+      - 10485760
+      queries:
+      - Q10
+    - id: SPARK_ORC_READER
+      property: spark.sql.orc.impl
+      values:
+      - native
+      - hive
+      queries:
+      - Q02
+      - Q07_NARROW
+    - id: SPARK_NESTED_VECTORIZATION
+      property: spark.sql.orc.enableNestedColumnVectorizedReader
+      values:
+      - false
+      - true
+      queries:
+      - Q11
+      - Q12
+      - NP_ARRAY_EPK_SPARK
+      requires:
+      - native_orc_reader
+      - nested_columns
+    hive:
+    - id: HIVE_VECTORIZATION
+      property: hive.vectorized.execution.enabled
+      values:
+      - false
+      - true
+      queries:
+      - Q02
+      - Q08
+      - Q09
+    - id: HIVE_CBO
+      property: hive.cbo.enable
+      values:
+      - false
+      - true
+      queries:
+      - Q09
+      - Q10
+    - id: HIVE_TEZ_BASE
+      engine: tez
+      llap: false
+      queries:
+      - Q01
+      - Q02
+      - Q08
+      - Q09
+      - Q10
+      session_overrides:
+        hive.llap.execution.mode: none
+      requires:
+      - hive_session_allows_mode_override
+    - id: HIVE_LLAP
+      engine: tez
+      llap: true
+      cache_states:
+      - cold
+      - warm
+      queries:
+      - Q01
+      - Q02
+      - Q08
+      - Q09
+      - Q10
+      - Q15
+      session_overrides:
+        hive.llap.execution.mode: only
+      requires:
+      - llap_daemons_running
+      - llap_task_execution_verified
+    - id: HIVE_LLAP_CACHE
+      engine: tez
+      llap: true
+      working_set_fractions:
+      - 0.25
+      - 0.5
+      - 1.0
+      session_overrides:
+        hive.llap.execution.mode: only
+      requires:
+      - llap_daemons_running
+      - llap_task_execution_verified
+      queries:
+      - Q01
+      - Q02
+    - id: HIVE_MATERIALIZED_VIEW
+      requires:
+      - materialized_views_supported
+      queries:
+      - Q18
+    - id: HIVE_LLAP_PREFLIGHT
+      requires:
+      - tez_version_verified
+      - llap_daemons_available
+      on_missing: skip_not_fail
+  final_comparison:
+    physical_dataset: BEST_ORC
+    engines:
+    - SPARK_BASE
+    - SPARK_OPTIMIZED
+    - HIVE_TEZ_BASE
+    - HIVE_LLAP_COLD
+    - HIVE_LLAP_WARM
+    require_identical_file_manifest: true
+    require_equal_query_results: true
+    queries:
+    - Q01
+    - Q02
+    - Q03
+    - Q06
+    - Q07_NARROW
+    - Q07_WIDE
+    - Q08
+    - Q09
+    - Q10
+    excluded_queries:
+      Q18: materialized_views_supported false
+      Q04: stays in layout-experiment core (2.4)
+  cache_state_definitions:
+    cold: first measured run before warmup loop
+    warm: measured runs after warmup_per_query=5
+    llap_cold: same rule without cache reset (no permission); results flagged observational
+    llap_warm: same rule; results flagged observational
+  result_equivalence:
+    canonical_projection: columns of schema.orc.txt
+    drop_partition_columns: true
+    map_normalization: to positional key/value arrays ordered by key
+    hybrid_extracted_scalars: excluded from hash (RAW_ARRAY has no such columns)
+    null_encoding: \N
+    timestamp_encoding: epoch microseconds
+    array_separator: '0x1F'
+    hash: SHA-256 over sorted per-row 128-bit row hashes
+    scope: identical rules for Spark and Hive
+  best_orc_rule:
+    objective: min p50 over {Q02, Q03, Q07_NARROW}
+    sla_gate: success_rate >= 0.95
+    tie_break: partitioned > sorted > baseline
+    excluded_candidates: ZSTD (Hive side ORC 1.5.6 codec gap)
+  execution_policy:
+    layout_lifetime: materialized on prepare, cleaned after stage (except candidates / --keep-layouts)
+    idempotency: '{hdfs_root}/state/*.done markers; resume never overwrites existing markers'
+    timeouts:
+      generate: calibrated by pilot run
+      run: 10 x p95 measured
+    capacity_check: warn (per-datanode free space, cluster is skewed per report 2026-10-16)
+    scales: S/M/L per dataset.yaml; L materialized one layout at a time
+  runs:
+    warmup_per_query: 5
+    measured_per_query: 30
+    concurrency_levels:
+    - 1
+    - 5
+    - 10
+    - 25
+    - 50
+    cache_states_not_aggregated: true
+    record_explain_plans: true
+    compare_complete_results: true
+    timing_scope: driver_submit_to_complete_result_consumption
+    max_fetch_rows: 10000000
+  metrics:
+    required:
+    - latency_ms
+    - status
+    - result_hash
+    - logical_rows
+    - orc_file_bytes
+    - hdfs_bytes_read
+    - engine_plan
+    optional:
+    - p50_ms
+    - p95_ms
+    - p99_ms
+    - rows_read
+    - files_opened
+    - partitions_selected
+    - cpu_ms
+    - shuffle_read_bytes
+    - shuffle_write_bytes
+    - spill_bytes
+    - cache_hit_ratio
+    unavailable_metric_value: null
+    sla_success_threshold_ms: 3000
+  configuration_validation:
+    reject_query_referencing_missing_column: true
+    require_reader_profile_override_applied: true
+    require_identical_canonical_row_hash_across_variants: true
+    require_physical_manifest_for_final_engine_comparison: true
+    require_nested_parameter_alignment: true
