@@ -1,50 +1,65 @@
-# orc-bench (Java 8 / Gradle)
+# orc-bench
 
-Fat-jar benchmark orchestrator for ORC / HDFS / Spark 3.2 / Hive 3.1 (Tez/LLAP) on SDP Hadoop.
+Java + Gradle benchmark orchestrator for ORC / HDFS / Spark 3.2 / Hive (Tez & LLAP).
 
-**Runtime contract** ([`docs/orc_hdfs_spark_hive_configs_final/environment.yaml`](docs/orc_hdfs_spark_hive_configs_final/environment.yaml)):
+**Status:** Checkpoints 0–9 **(A) local/implementation** done (CLI phases through `report`/`final` + cluster launch scripts / packaging / runbook). Live cluster validation **(B)** for CP3–CP9 is pending on a Hadoop node. Checkpoint 10 waits for an explicit go-ahead.
 
-| Component | Version |
+> **This development host cannot perform Hadoop-cluster actions** (live Kerberos, HDFS `/orc_test`, `spark-submit` on YARN, Hive JDBC, real generate/run). Local work = code, unit/mock tests, packaging, script `--dry-run-submit`. Cluster work = on-node only. See plan §7.0.
+
+## Docs
+
+| Document | Role |
 |---|---|
-| Java | **1.8** (cluster: 1.8.0_292) |
-| Spark | 3.2.1 |
-| Hive | 3.1.2 |
-| Hadoop | 3.1.3 |
-| Tez | 0.9.1 |
-| Scala (Spark) | 2.12 |
-| Queue | `benchmark` |
-| HDFS root | `/benchmarks/audit_orc` |
-| Scales | S=100 / M=1024 / L=5120 GiB |
+| [`docs/План разработки тестового приложения ORC HDFS Spark Hive.md`](docs/План%20разработки%20тестового%20приложения%20ORC%20HDFS%20Spark%20Hive.md) | Plan + gated checkpoints (A local / B cluster) |
+| [`docs/Запуск на Hadoop кластере.md`](docs/Запуск%20на%20Hadoop%20кластере.md) | **Ops runbook** — copy, phases, CLI, spark-submit, reports, results |
+| [`docs/orc_hdfs_spark_hive_configs_final/`](docs/orc_hdfs_spark_hive_configs_final/) | Source-of-truth configs (`hdfs_root=/orc_test`, queue `default`) |
 
-Bundled YAML: `conf/` (synced from `docs/orc_hdfs_spark_hive_configs_final/`).
-
-## Build (JDK 8 required)
+## Build (local / CI)
 
 ```bash
-export JAVA_HOME=$HOME/.local/jdk/jdk8   # or any JDK 8
-export PATH=$JAVA_HOME/bin:$PATH
-./gradlew clean test shadowJar
-# → build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar
+./scripts/build.sh
+# or: ./gradlew clean test shadowJar
 ```
 
-Helper: `./scripts/with-jdk8.sh ./gradlew test shadowJar`
+Artifact: `build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar`  
+Main-Class: `orcbench.Main`
 
-Build fails if Gradle runs on a non-Java-8 JVM (`verifyJava8` task).
-
-## Run / results
-
-Подробная инструкция (фазы, CLI, примеры, разбор отчётов):
-
-**[docs/Запуск orc-bench и получение результатов.md](docs/Запуск%20orc-bench%20и%20получение%20результатов.md)**
-
-Кратко:
+Package for scp to a node (no cluster connection):
 
 ```bash
-./scripts/with-jdk8.sh ./scripts/build.sh
-./scripts/run-preflight.sh --dry-run
-./scripts/run-benchmark.sh --scale S --phase all --env-override conf/environment.local.yaml
+./scripts/package-for-cluster.sh
+# → dist/orc-bench-cluster-bundle.tgz
+./scripts/package-for-cluster.sh --with-runbook
 ```
 
-Отчёты: `results/<runId>/` → `SUMMARY.txt`, `summary.csv`, `metrics.jsonl`, `skipped.tsv`.
+## CLI (local smoke — no live cluster)
 
-Скрипты (все параметры с русскими комментариями): `scripts/with-jdk8.sh`, `build.sh`, `run-benchmark.sh`, `run-preflight.sh`.
+```bash
+java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main --help
+
+# Config-derived capabilities / skip matrix without live HDFS/JDBC
+java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main \
+  --config conf --scale S --phase preflight --dry-run --results-dir results
+
+# Script smoke (prints spark-submit line; no submit)
+./scripts/run-benchmark.sh --dry-run-submit --phase preflight --scale S
+```
+
+## Cluster node (required for live probes / runs)
+
+After copying jar + `conf/` + `scripts/` to a node (see runbook). Kerberos ticket/principal must already be available on the node:
+
+```bash
+./scripts/run-preflight.sh --env-override conf/environment.local.yaml
+./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
+
+# Live generate → /orc_test/S/RAW_ARRAY_BASE/ (+ refs/, manifest/)
+./scripts/run-benchmark.sh \
+  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
+  --scale S --phase generate \
+  --env-override conf/environment.local.yaml
+```
+
+Default `spark-submit`: `--deploy-mode cluster`, `--queue default`, executors `10×4×16g`. Switch to client with `--deploy-mode client` (easier local `results/`).
+
+Runtime contract: `conf/` (copy of `docs/orc_hdfs_spark_hive_configs_final/`).

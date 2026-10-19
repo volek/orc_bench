@@ -1,12 +1,23 @@
 package orcbench.report;
 
+import orcbench.config.ConfigLoader;
+import orcbench.layout.ExperimentExpander;
 import orcbench.metrics.MetricsStore;
-import orcbench.model.Models.*;
+import orcbench.model.Models.AggregateStats;
+import orcbench.model.Models.BestOrcChoice;
+import orcbench.model.Models.CapabilityReport;
+import orcbench.model.Models.ExperimentPlan;
+import orcbench.model.Models.LoadedConfig;
+import orcbench.model.Models.ReportPhaseResult;
+import orcbench.model.Models.RunResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -18,41 +29,101 @@ class ReportWriterTest {
     Path tmp;
 
     @Test
-    void writeRunCreatesArtifacts() throws Exception {
-        RunResult r = new RunResult();
-        r.runId = "run1";
-        r.experimentId = "E1";
-        r.variantLabel = "v";
-        r.engine = "spark";
-        r.queryId = "Q01";
-        r.latencyMs = 100;
-        r.status = "ok";
-        r.resultHash = "abc";
-        r.logicalRows = 1;
-        r.concurrency = 1;
+    void writeRunCreatesAllArtifacts() throws Exception {
+        List<RunResult> results = MetricsStore.readJsonl(
+                Paths.get("src/test/resources/fixtures/cp8/metrics.jsonl").toString());
+        List<AggregateStats> agg = MetricsStore.aggregate(results, 3000L);
+        BestOrcChoice best = BestOrcSelector.select(agg, new orcbench.model.Models.BestOrcRule(), null);
 
-        List<RunResult> results = Collections.singletonList(r);
-        List<AggregateStats> agg = MetricsStore.aggregate(results, 3000);
         CapabilityReport cap = new CapabilityReport();
         cap.capabilities.put("hive_jdbc", true);
-        cap.notes.add("note1");
+        cap.notes.add("fixture");
 
-        String dir = ReportWriter.writeRun(
+        Path dir = ReportWriter.writeRun(
                 tmp.toString(),
                 "run1",
+                "S",
                 results,
                 agg,
                 Collections.singletonList(new String[]{"E2", "skipped"}),
                 cap,
-                "/best");
+                best,
+                ExperimentExpander.finalProfiles(
+                        ConfigLoader.load("conf", null).benchmark,
+                        best.layoutPath == null ? "/orc_test/S/BEST" : best.layoutPath),
+                Collections.singletonList("unit-note"),
+                3000L,
+                true);
 
-        Path out = java.nio.file.Paths.get(dir);
-        assertTrue(Files.exists(out.resolve("metrics.jsonl")));
-        assertTrue(Files.exists(out.resolve("summary.csv")));
-        assertTrue(Files.exists(out.resolve("skipped.tsv")));
-        assertTrue(Files.exists(out.resolve("SUMMARY.txt")));
-        String summary = new String(Files.readAllBytes(out.resolve("SUMMARY.txt")), java.nio.charset.StandardCharsets.UTF_8);
-        assertTrue(summary.contains("bestOrc=/best"));
+        assertTrue(Files.exists(dir.resolve("metrics.jsonl")));
+        assertTrue(Files.exists(dir.resolve("summary.csv")));
+        assertTrue(Files.exists(dir.resolve("skipped.tsv")));
+        assertTrue(Files.exists(dir.resolve("SUMMARY.txt")));
+        assertTrue(Files.exists(dir.resolve("final_comparison.tsv")));
+
+        String summary = new String(Files.readAllBytes(dir.resolve("SUMMARY.txt")), StandardCharsets.UTF_8);
+        assertTrue(summary.contains("runId=run1"));
+        assertTrue(summary.contains("scale=S"));
+        assertTrue(summary.contains("bestOrc.experimentId="));
+        assertFalse(summary.contains("compression=ZSTD")
+                || (best.variantLabel != null && best.variantLabel.contains("ZSTD")));
         assertTrue(summary.contains("hive_jdbc=true"));
+        assertTrue(summary.contains("finalComparisonCells="));
+
+        String csv = new String(Files.readAllBytes(dir.resolve("summary.csv")), StandardCharsets.UTF_8);
+        assertTrue(csv.contains("avgMs"));
+        assertTrue(csv.contains("slaSuccessRate"));
+        assertTrue(csv.contains("slaPass"));
+
+        String skipped = new String(Files.readAllBytes(dir.resolve("skipped.tsv")), StandardCharsets.UTF_8);
+        assertTrue(skipped.contains("E2"));
+    }
+
+    @Test
+    void reportPhaseFromFixtureMetricsJsonl() throws Exception {
+        LoadedConfig cfg = ConfigLoader.load("conf", null);
+        ExperimentPlan plan = ExperimentExpander.buildPlan(
+                cfg, "S", Arrays.asList("spark", "hive_tez"), null);
+
+        Path fixture = Paths.get("src/test/resources/fixtures/cp8/metrics.jsonl");
+        ReportPhaseResult result = ReportPhase.report(
+                cfg,
+                plan,
+                "S",
+                tmp.toString(),
+                "fixture-cp8",
+                fixture.toString(),
+                null,
+                null,
+                null,
+                false,
+                true);
+
+        assertEquals("final", result.phase);
+        assertTrue(result.resultRows > 0);
+        assertTrue(result.aggregateRows > 0);
+        assertNotNull(result.bestOrc);
+        assertNotNull(result.bestOrc.experimentId);
+        assertFalse(result.bestOrc.variantLabel != null
+                && result.bestOrc.variantLabel.toUpperCase().contains("ZSTD"));
+        assertTrue(result.finalComparisonCells >= 4);
+        assertNotNull(result.outputDir);
+        assertTrue(Files.exists(Paths.get(result.outputDir).resolve("SUMMARY.txt")));
+        assertTrue(Files.exists(Paths.get(result.outputDir).resolve("final_comparison.tsv")));
+    }
+
+    @Test
+    void reportPhaseDryRunWithoutMetrics() throws Exception {
+        LoadedConfig cfg = ConfigLoader.load("conf", null);
+        ExperimentPlan plan = ExperimentExpander.buildPlan(cfg, "S", Arrays.asList("spark"), null);
+
+        ReportPhaseResult result = ReportPhase.report(
+                cfg, plan, "S", tmp.toString(), "dry-report", null, null, null, null, true, false);
+
+        assertEquals("report", result.phase);
+        assertTrue(result.dryRun);
+        assertTrue(Files.exists(Paths.get(result.outputDir).resolve("SUMMARY.txt")));
+        assertTrue(Files.exists(Paths.get(result.outputDir).resolve("summary.csv")));
+        assertTrue(Files.exists(Paths.get(result.outputDir).resolve("skipped.tsv")));
     }
 }

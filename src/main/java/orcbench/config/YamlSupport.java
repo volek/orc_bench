@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/** SnakeYAML helpers for raw maps and typed ConfigLoader parsing. */
 public final class YamlSupport {
     private static final Yaml YAML = new Yaml();
 
@@ -220,7 +221,7 @@ public final class YamlSupport {
         }
         for (Map.Entry<String, Object> e : ((Map<String, Object>) v).entrySet()) {
             if (e.getValue() != null) {
-                out.put(e.getKey(), e.getValue().toString());
+                out.put(String.valueOf(e.getKey()), e.getValue().toString());
             }
         }
         return out;

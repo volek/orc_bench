@@ -1,14 +1,32 @@
 package orcbench.layout;
 
-import orcbench.model.Models.*;
+import orcbench.model.Models.BenchmarkContract;
+import orcbench.model.Models.EngineExperiment;
+import orcbench.model.Models.EngineProfile;
+import orcbench.model.Models.EnvironmentSection;
+import orcbench.model.Models.ExperimentInstance;
+import orcbench.model.Models.ExperimentPlan;
+import orcbench.model.Models.LoadedConfig;
+import orcbench.model.Models.OrcWriteSettings;
+import orcbench.model.Models.PhysicalBaseline;
+import orcbench.model.Models.PhysicalExperiment;
+import orcbench.model.Models.SparkEnv;
+import orcbench.model.Models.YarnEnv;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Expands physical / engine YAML matrices into runnable cells and selects
+ * capacity-aware concurrency levels per dataset scale (Checkpoint 2).
+ */
 public final class ExperimentExpander {
     private ExperimentExpander() {}
 
@@ -23,11 +41,40 @@ public final class ExperimentExpander {
         return s;
     }
 
-    public static List<ExperimentInstance> expandPhysical(BenchmarkContract contract, String scale, List<String> filterIds) {
+    /**
+     * Build a dry-runnable experiment plan: physical cells, engine cells,
+     * final-comparison stubs, and capacity-aware concurrency for {@code scale}.
+     */
+    public static ExperimentPlan buildPlan(
+            LoadedConfig cfg, String scale, List<String> engines, List<String> experimentFilter) {
+        ExperimentPlan plan = new ExperimentPlan();
+        plan.scale = scale == null ? "S" : scale.toUpperCase(Locale.ROOT);
+        String baselinePath = cfg.benchmark.benchmark.hdfsRoot + "/" + plan.scale + "/"
+                + cfg.benchmark.physicalBaseline.id;
+
+        plan.physical = expandPhysical(cfg.benchmark, plan.scale, experimentFilter);
+        plan.engine = expandEngine(cfg.benchmark, plan.scale, baselinePath, engines, experimentFilter);
+        plan.finalComparison = finalProfiles(cfg.benchmark, baselinePath);
+        plan.concurrencyCandidates = new ArrayList<>(cfg.benchmark.runs.concurrencyLevels);
+
+        EnvironmentSection env = cfg.environment.environment;
+        ConcurrencySelection sel = selectConcurrency(
+                plan.concurrencyCandidates,
+                plan.scale,
+                env.yarn,
+                env.spark);
+        plan.concurrencySelected = sel.levels;
+        plan.concurrencyNote = sel.note;
+        return plan;
+    }
+
+    public static List<ExperimentInstance> expandPhysical(
+            BenchmarkContract contract, String scale, List<String> filterIds) {
         PhysicalBaseline base = contract.physicalBaseline;
         OrcWriteSettings baseOrc = baselineSettings(base);
         String hdfsRoot = contract.benchmark.hdfsRoot;
-        Set<String> want = new HashSet<>(filterIds);
+        Set<String> want = new HashSet<>(filterIds == null
+                ? Collections.<String>emptyList() : filterIds);
         List<ExperimentInstance> out = new ArrayList<>();
 
         if (want.isEmpty() || want.contains(base.id)) {
@@ -35,14 +82,17 @@ public final class ExperimentExpander {
         }
 
         for (PhysicalExperiment exp : contract.physicalExperiments) {
-            if (!want.isEmpty() && !want.contains(exp.id)) continue;
-            switch (exp.kind) {
+            if (!want.isEmpty() && !want.contains(exp.id)) {
+                continue;
+            }
+            String kind = exp.kind == null ? "" : exp.kind;
+            switch (kind) {
                 case "query_only":
                     out.add(queryOnly(exp, base, baseOrc, hdfsRoot, scale));
                     break;
                 case "reader_settings":
                     for (Object v : exp.variants) {
-                        boolean enabled = Boolean.parseBoolean(v.toString());
+                        boolean enabled = Boolean.parseBoolean(String.valueOf(v));
                         ExperimentInstance i = baseCopy(exp, base, baseOrc, hdfsRoot, scale, "pushdown=" + enabled);
                         i.kind = exp.kind;
                         i.layoutPath = hdfsRoot + "/" + scale + "/" + base.id;
@@ -53,16 +103,23 @@ public final class ExperimentExpander {
                     break;
                 case "cluster_read":
                     List<String> variants = new ArrayList<>();
-                    if (exp.variants.isEmpty()) variants.add("default");
-                    else for (Object v : exp.variants) variants.add(v.toString());
+                    if (exp.variants.isEmpty()) {
+                        variants.add("default");
+                    } else {
+                        for (Object v : exp.variants) {
+                            variants.add(String.valueOf(v));
+                        }
+                    }
                     for (String v : variants) {
                         ExperimentInstance i = baseCopy(exp, base, baseOrc, hdfsRoot, scale, v);
                         i.kind = exp.kind;
                         i.layoutPath = hdfsRoot + "/" + scale + "/" + base.id;
+                        boolean centralized = "HDFS_CACHE".equals(exp.id) && "centralized".equals(v);
                         i.requires = new ArrayList<>(
-                                "HDFS_CACHE".equals(exp.id) && "centralized".equals(v)
-                                        ? exp.requiresForCentralized : exp.requires);
-                        if ("HDFS_CACHE".equals(exp.id)) i.cacheState = v;
+                                centralized ? exp.requiresForCentralized : exp.requires);
+                        if ("HDFS_CACHE".equals(exp.id)) {
+                            i.cacheState = v;
+                        }
                         out.add(i);
                     }
                     break;
@@ -70,7 +127,7 @@ public final class ExperimentExpander {
                     ExperimentInstance d = baseCopy(exp, base, baseOrc, hdfsRoot, scale, "derived_partition");
                     d.kind = exp.kind;
                     d.layoutPath = hdfsRoot + "/" + scale + "/PARTITIONING_event_date";
-                    d.partitionColumns = java.util.Arrays.asList("event_date");
+                    d.partitionColumns = Arrays.asList("event_date");
                     d.queries = new ArrayList<>(exp.queries);
                     d.requires = new ArrayList<>(exp.requires);
                     out.add(d);
@@ -115,8 +172,11 @@ public final class ExperimentExpander {
                     break;
                 case "bloom_fpp":
                     orc.bloomFpp = Double.parseDouble(value.toString());
-                    if (!exp.requiresBloomColumns.isEmpty()) orc.bloomColumns = new ArrayList<>(exp.requiresBloomColumns);
-                    else if (orc.bloomColumns.isEmpty()) orc.bloomColumns = java.util.Arrays.asList("userLogin");
+                    if (!exp.requiresBloomColumns.isEmpty()) {
+                        orc.bloomColumns = new ArrayList<>(exp.requiresBloomColumns);
+                    } else if (orc.bloomColumns.isEmpty()) {
+                        orc.bloomColumns = Arrays.asList("userLogin");
+                    }
                     break;
                 case "row_index_stride":
                     orc.rowIndexStride = Integer.parseInt(value.toString());
@@ -165,10 +225,12 @@ public final class ExperimentExpander {
             List<String> engines, List<String> filterIds) {
         PhysicalBaseline base = contract.physicalBaseline;
         OrcWriteSettings baseOrc = baselineSettings(base);
-        Set<String> want = new HashSet<>(filterIds);
+        Set<String> want = new HashSet<>(filterIds == null
+                ? Collections.<String>emptyList() : filterIds);
+        List<String> eng = engines == null ? Collections.<String>emptyList() : engines;
         List<ExperimentInstance> out = new ArrayList<>();
 
-        if (engines.contains("spark")) {
+        if (eng.contains("spark")) {
             ExperimentInstance sparkBase = new ExperimentInstance();
             sparkBase.experimentId = "SPARK_BASE";
             sparkBase.kind = "engine_baseline";
@@ -179,10 +241,14 @@ public final class ExperimentExpander {
             sparkBase.targetFileSizeMib = base.targetFileSizeMib;
             sparkBase.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.spark);
             sparkBase.engine = "spark";
-            out.add(sparkBase);
+            if (want.isEmpty() || want.contains("SPARK_BASE")) {
+                out.add(sparkBase);
+            }
 
             for (EngineExperiment exp : contract.engineExperiments.spark) {
-                if (!want.isEmpty() && !want.contains(exp.id)) continue;
+                if (!want.isEmpty() && !want.contains(exp.id)) {
+                    continue;
+                }
                 if (exp.property != null && !exp.values.isEmpty()) {
                     for (Object v : exp.values) {
                         ExperimentInstance i = engineBase(exp, base, baseOrc, layoutPath, exp.property + "=" + v);
@@ -205,30 +271,67 @@ public final class ExperimentExpander {
             }
         }
 
-        if (engines.contains("hive_tez") || engines.contains("hive_llap")) {
+        if (eng.contains("hive_tez") || eng.contains("hive_llap")) {
             for (EngineExperiment exp : contract.engineExperiments.hive) {
-                if (!want.isEmpty() && !want.contains(exp.id)) continue;
+                if (!want.isEmpty() && !want.contains(exp.id)) {
+                    continue;
+                }
                 boolean isLlap = Boolean.TRUE.equals(exp.llap);
-                if (isLlap && !engines.contains("hive_llap")) continue;
-                if (!isLlap && !engines.contains("hive_tez") && !engines.contains("hive_llap")) continue;
+                if (isLlap && !eng.contains("hive_llap")) {
+                    continue;
+                }
+                if (!isLlap && !eng.contains("hive_tez")) {
+                    continue;
+                }
 
                 List<String> cacheStates = new ArrayList<>();
-                if (!exp.cacheStates.isEmpty()) cacheStates.addAll(exp.cacheStates);
-                else if (!exp.workingSetFractions.isEmpty()) {
-                    for (Double f : exp.workingSetFractions) cacheStates.add("ws=" + f);
-                } else cacheStates.add("n/a");
+                if (!exp.cacheStates.isEmpty()) {
+                    cacheStates.addAll(exp.cacheStates);
+                } else if (!exp.workingSetFractions.isEmpty()) {
+                    for (Double f : exp.workingSetFractions) {
+                        cacheStates.add("ws=" + f);
+                    }
+                } else {
+                    cacheStates.add("n/a");
+                }
 
-                for (String cs : cacheStates) {
-                    ExperimentInstance i = engineBase(exp, base, baseOrc, layoutPath,
-                            "n/a".equals(cs) ? exp.id : exp.id + ":" + cs);
-                    i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
-                    i.sessionOverrides.putAll(exp.sessionOverrides);
-                    i.queries = new ArrayList<>(exp.queries);
-                    i.requires = new ArrayList<>(exp.requires);
-                    i.engine = isLlap ? "hive_llap" : "hive_tez";
-                    i.llap = isLlap;
-                    if (!"n/a".equals(cs)) i.cacheState = cs;
-                    out.add(i);
+                if (exp.property != null && !exp.values.isEmpty()) {
+                    // HIVE_VECTORIZATION / HIVE_CBO — OVAT on property values (Tez dialect).
+                    for (Object v : exp.values) {
+                        for (String cs : cacheStates) {
+                            String label = exp.property + "=" + v;
+                            if (!"n/a".equals(cs)) {
+                                label = label + ":" + cs;
+                            }
+                            ExperimentInstance i = engineBase(exp, base, baseOrc, layoutPath, label);
+                            i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
+                            i.sessionOverrides.putAll(exp.sessionOverrides);
+                            i.sessionOverrides.put(exp.property, v.toString());
+                            i.queries = new ArrayList<>(exp.queries);
+                            i.requires = new ArrayList<>(exp.requires);
+                            i.engine = isLlap ? "hive_llap" : "hive_tez";
+                            i.llap = isLlap;
+                            if (!"n/a".equals(cs)) {
+                                i.cacheState = cs;
+                            }
+                            out.add(i);
+                        }
+                    }
+                } else {
+                    for (String cs : cacheStates) {
+                        ExperimentInstance i = engineBase(exp, base, baseOrc, layoutPath,
+                                "n/a".equals(cs) ? exp.id : exp.id + ":" + cs);
+                        i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
+                        i.sessionOverrides.putAll(exp.sessionOverrides);
+                        i.queries = new ArrayList<>(exp.queries);
+                        i.requires = new ArrayList<>(exp.requires);
+                        i.engine = isLlap ? "hive_llap" : "hive_tez";
+                        i.llap = isLlap;
+                        if (!"n/a".equals(cs)) {
+                            i.cacheState = cs;
+                        }
+                        out.add(i);
+                    }
                 }
             }
         }
@@ -250,55 +353,191 @@ public final class ExperimentExpander {
             i.partitionColumns = new ArrayList<>(base.partitioning);
             i.sorting = new ArrayList<>(base.sorting);
             i.targetFileSizeMib = base.targetFileSizeMib;
+            i.queries = new ArrayList<>(contract.finalComparison.queries);
 
+            EngineProfile profile = contract.engineProfiles.get(name);
             switch (name) {
                 case "SPARK_BASE":
                     i.engine = "spark";
                     i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.spark);
+                    applyProfileSet(i, profile);
                     break;
                 case "SPARK_OPTIMIZED":
                     i.engine = "spark";
                     i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.spark);
-                    i.sessionOverrides.put("spark.sql.orc.enableVectorizedReader", "true");
-                    i.sessionOverrides.put("spark.sql.adaptive.enabled", "true");
-                    i.sessionOverrides.put("spark.sql.optimizer.dynamicPartitionPruning.enabled", "true");
-                    i.sessionOverrides.put("spark.sql.cbo.enabled", "true");
+                    if (profile != null && !profile.set.isEmpty()) {
+                        applyProfileSet(i, profile);
+                    } else {
+                        i.sessionOverrides.put("spark.sql.cbo.enabled", "true");
+                        i.sessionOverrides.put("spark.sql.autoBroadcastJoinThreshold", "10485760");
+                        i.sessionOverrides.put("spark.sql.orc.enableNestedColumnVectorizedReader", "true");
+                    }
                     break;
                 case "HIVE_TEZ_BASE":
                     i.engine = "hive_tez";
                     i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
-                    i.sessionOverrides.put("hive.llap.execution.mode", "none");
-                    break;
-                case "HIVE_TEZ_OPTIMIZED":
-                    i.engine = "hive_tez";
-                    i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
-                    i.sessionOverrides.put("hive.llap.execution.mode", "none");
-                    i.sessionOverrides.put("hive.vectorized.execution.enabled", "true");
-                    i.sessionOverrides.put("hive.cbo.enable", "true");
+                    if (profile != null && !profile.set.isEmpty()) {
+                        applyProfileSet(i, profile);
+                    } else {
+                        i.sessionOverrides.put("hive.llap.execution.mode", "none");
+                    }
                     break;
                 case "HIVE_LLAP_COLD":
                     i.engine = "hive_llap";
                     i.llap = true;
                     i.cacheState = "cold";
                     i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
-                    i.sessionOverrides.put("hive.llap.execution.mode", "only");
-                    i.requires = java.util.Arrays.asList("llap_daemons_running", "llap_task_execution_verified");
+                    if (profile != null && !profile.set.isEmpty()) {
+                        applyProfileSet(i, profile);
+                    } else {
+                        i.sessionOverrides.put("hive.llap.execution.mode", "only");
+                    }
+                    i.requires = Arrays.asList("llap_daemons_running", "llap_task_execution_verified");
                     break;
                 case "HIVE_LLAP_WARM":
                     i.engine = "hive_llap";
                     i.llap = true;
                     i.cacheState = "warm";
                     i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
-                    i.sessionOverrides.put("hive.llap.execution.mode", "only");
-                    i.requires = java.util.Arrays.asList("llap_daemons_running", "llap_task_execution_verified");
+                    if (profile != null && !profile.set.isEmpty()) {
+                        applyProfileSet(i, profile);
+                    } else {
+                        i.sessionOverrides.put("hive.llap.execution.mode", "only");
+                    }
+                    i.requires = Arrays.asList("llap_daemons_running", "llap_task_execution_verified");
                     break;
                 default:
-                    i.engine = "spark";
-                    i.cacheState = name;
+                    i.engine = name.toLowerCase(Locale.ROOT).contains("hive") ? "hive_tez" : "spark";
+                    if (profile != null) {
+                        if (profile.extendsBaseline != null && profile.extendsBaseline.contains("hive")) {
+                            i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.hive);
+                            i.engine = "hive_tez";
+                        } else {
+                            i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.spark);
+                        }
+                        applyProfileSet(i, profile);
+                    }
             }
             out.add(i);
         }
         return out;
+    }
+
+    private static void applyProfileSet(ExperimentInstance i, EngineProfile profile) {
+        if (profile != null && profile.set != null) {
+            i.sessionOverrides.putAll(profile.set);
+        }
+    }
+
+    /**
+     * Capacity- and scale-aware filter of YAML concurrency candidates (§8.2).
+     * Candidates are a ceiling; heavier levels require spare YARN capacity.
+     */
+    public static ConcurrencySelection selectConcurrency(
+            List<Integer> candidates, String scale, YarnEnv yarn, SparkEnv spark) {
+        List<Integer> cand = candidates == null ? Collections.<Integer>emptyList() : candidates;
+        long memGib = yarn != null && yarn.availableMemoryGib != null ? yarn.availableMemoryGib : 0L;
+        int vcores = yarn != null && yarn.availableVcores != null ? yarn.availableVcores : 0;
+        int execInst = spark != null && spark.executorInstances != null ? spark.executorInstances : 10;
+        int execCores = spark != null && spark.executorCores != null ? spark.executorCores : 4;
+        int execMem = spark != null && spark.executorMemoryGib != null ? spark.executorMemoryGib : 16;
+
+        double reservedMem = (double) execInst * execMem;
+        double reservedCores = (double) execInst * execCores;
+        double memUtil = memGib <= 0L ? 1.0 : reservedMem / (double) memGib;
+        double coreUtil = vcores <= 0 ? 1.0 : reservedCores / (double) vcores;
+        double util = Math.max(memUtil, coreUtil);
+
+        // First-trial sizing (~160 GiB / 40 vCores of 216 / 67) lands near util≈0.74 → cap 5.
+        int capacityCap;
+        if (util >= 0.90) {
+            capacityCap = 1;
+        } else if (util >= 0.70) {
+            capacityCap = 5;
+        } else if (util >= 0.50) {
+            capacityCap = 10;
+        } else {
+            capacityCap = 25;
+        }
+
+        String scaleKey = scale == null ? "S" : scale.toUpperCase(Locale.ROOT);
+        int scaleCap;
+        if ("L".equals(scaleKey)) {
+            // Heavy scale: only concurrency 1 unless clear headroom (§8.2)
+            scaleCap = util < 0.50 ? 5 : 1;
+        } else if ("M".equals(scaleKey)) {
+            scaleCap = util < 0.70 ? 10 : 5;
+        } else {
+            // S: start with low levels; allow 10/25 only with spare capacity
+            scaleCap = util < 0.50 ? 25 : (util < 0.70 ? 10 : 5);
+        }
+
+        int max = Math.min(capacityCap, scaleCap);
+        List<Integer> selected = new ArrayList<>();
+        for (Integer c : cand) {
+            if (c != null && c >= 1 && c <= max) {
+                selected.add(c);
+            }
+        }
+        if (selected.isEmpty()) {
+            selected.add(1);
+        }
+
+        ConcurrencySelection sel = new ConcurrencySelection();
+        sel.levels = selected;
+        sel.maxAllowed = max;
+        sel.utilization = util;
+        sel.note = String.format(Locale.ROOT,
+                "scale=%s util=%.2f (mem %.0f/%d GiB, cores %.0f/%d) capacityCap=%d scaleCap=%d → %s",
+                scaleKey, util, reservedMem, memGib, reservedCores, vcores, capacityCap, scaleCap, selected);
+        return sel;
+    }
+
+    /** Print a human-readable experiment plan (dry-run). */
+    public static void printPlan(ExperimentPlan plan, Appendable out) throws java.io.IOException {
+        out.append("[plan] scale=").append(plan.scale)
+                .append(" physicalCells=").append(Integer.toString(plan.physical.size()))
+                .append(" engineCells=").append(Integer.toString(plan.engine.size()))
+                .append(" finalCells=").append(Integer.toString(plan.finalComparison.size()))
+                .append('\n');
+        out.append("[plan] concurrency candidates=").append(String.valueOf(plan.concurrencyCandidates))
+                .append(" selected=").append(String.valueOf(plan.concurrencySelected))
+                .append('\n');
+        if (plan.concurrencyNote != null) {
+            out.append("[plan] ").append(plan.concurrencyNote).append('\n');
+        }
+        out.append("[plan] --- physical ---\n");
+        for (ExperimentInstance i : plan.physical) {
+            appendCell(out, i);
+        }
+        out.append("[plan] --- engine ---\n");
+        for (ExperimentInstance i : plan.engine) {
+            appendCell(out, i);
+        }
+        out.append("[plan] --- final_comparison ---\n");
+        for (ExperimentInstance i : plan.finalComparison) {
+            appendCell(out, i);
+        }
+    }
+
+    private static void appendCell(Appendable out, ExperimentInstance i) throws java.io.IOException {
+        out.append("  ").append(i.experimentId)
+                .append(" / ").append(i.variantLabel == null ? "-" : i.variantLabel)
+                .append(" kind=").append(i.kind == null ? "-" : i.kind)
+                .append(" engine=").append(i.engine == null ? "-" : i.engine)
+                .append(" layout=").append(i.layoutPath == null ? "-" : i.layoutPath)
+                .append(" queries=").append(Integer.toString(i.queries == null ? 0 : i.queries.size()));
+        if (i.skipReason != null) {
+            out.append(" SKIP=").append(i.skipReason);
+        }
+        out.append('\n');
+    }
+
+    public static final class ConcurrencySelection {
+        public List<Integer> levels = new ArrayList<>();
+        public int maxAllowed;
+        public double utilization;
+        public String note;
     }
 
     private static ExperimentInstance baselineInstance(
@@ -362,7 +601,9 @@ public final class ExperimentExpander {
         List<String> out = new ArrayList<>();
         if (v instanceof List) {
             for (Object o : (List<Object>) v) {
-                if (o != null) out.add(o.toString());
+                if (o != null) {
+                    out.add(o.toString());
+                }
             }
         } else if (v != null) {
             out.add(v.toString());
@@ -373,10 +614,14 @@ public final class ExperimentExpander {
     private static String labelOf(String factor, Object value) {
         if (value instanceof List) {
             List<?> l = (List<?>) value;
-            if (l.isEmpty()) return factor + "=[]";
+            if (l.isEmpty()) {
+                return factor + "=[]";
+            }
             StringBuilder sb = new StringBuilder(factor).append("=[");
             for (int i = 0; i < l.size(); i++) {
-                if (i > 0) sb.append(',');
+                if (i > 0) {
+                    sb.append(',');
+                }
                 sb.append(l.get(i));
             }
             return sb.append(']').toString();

@@ -1,210 +1,233 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-benchmark.sh — запуск orc-bench на ноде Hadoop/SDP через spark-submit
+# run-benchmark.sh — обёртка spark-submit для orc-bench на узле кластера
 #
 # Назначение:
-#   Оркестрация фаз preflight/generate/materialize/run/final на очереди
-#   YARN «benchmark» согласно docs/orc_hdfs_spark_hive_configs_final.
+#   Формирует и запускает spark-submit с классом orcbench.Main.
+#   Живой submit (spark-submit, HDFS, Kerberos) — только на узле Hadoop/SDP.
+#   С ноутбука разработчика: --dry-run-submit (печать команды без submit).
+#   См. docs/Запуск на Hadoop кластере.md
 #
-# Типовой вызов:
-#   ./scripts/run-benchmark.sh \
-#     --jar build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar \
-#     --scale S \
-#     --phase preflight \
-#     --env-override conf/environment.local.yaml
+# Значения по умолчанию (CLI/env → conf/environment.yaml → хардкод):
+#   master=yarn, deploy_mode=cluster, queue=default, executors 10×4×16g
 #
-# Требования на ноде:
-#   - Java 8 в PATH / JAVA_HOME
-#   - spark-submit (Spark 3.2.1 SDP)
-#   - доступ к HDFS и ZooKeeper HS2
-#   - каталог conf/ рядом с jar (или путь через --config)
+# Параметры spark-submit (опционально; перекрывают YAML/env):
+#   -h, --help              показать эту справку
+#   --jar PATH              fat-jar (иначе ORC_BENCH_JAR или путь по умолчанию)
+#   --master URL            Spark master (иначе ORC_BENCH_MASTER / YAML)
+#   --deploy-mode MODE      cluster|client (ORC_BENCH_DEPLOY_MODE / YAML)
+#   --queue NAME            YARN-очередь (ORC_BENCH_QUEUE / YAML)
+#   --num-executors N       число executor'ов (ORC_BENCH_NUM_EXECUTORS / YAML)
+#   --executor-cores N      ядра на executor (ORC_BENCH_EXECUTOR_CORES / YAML)
+#   --executor-memory SIZE  память executor, напр. 16g (ORC_BENCH_EXECUTOR_MEMORY)
+#   --principal PRINCIPAL   Kerberos principal (ORC_BENCH_PRINCIPAL / YAML)
+#   --keytab PATH           путь к keytab (ORC_BENCH_KEYTAB / YAML)
+#   --dry-run-submit        только напечатать строку spark-submit и выйти 0
 #
-# Параметры скрипта (все опциональны, кроме логики по умолчанию):
+# Переменные окружения (те же смыслы, что флаги выше):
+#   ORC_BENCH_JAR, ORC_BENCH_MASTER, ORC_BENCH_DEPLOY_MODE, ORC_BENCH_QUEUE,
+#   ORC_BENCH_NUM_EXECUTORS, ORC_BENCH_EXECUTOR_CORES, ORC_BENCH_EXECUTOR_MEMORY,
+#   ORC_BENCH_PRINCIPAL, ORC_BENCH_KEYTAB, ORC_BENCH_ENV_YAML
+#   (YAML по умолчанию: conf/environment.yaml)
 #
-#   --jar PATH
-#       Путь к fat jar. По умолчанию:
-#       build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar
+# Флаги приложения (пробрасываются в orcbench.Main):
+#   --config, --scale, --phase, --experiments, --engines, --env-override,
+#   --results-dir, --run-id, --metrics-jsonl, --keep-layouts
+#   --dry-run, --mock-generate, --mock-materialize, --mock-run, --cleanup-layouts
+#   -- …                дальше все аргументы — в Main
+#   неизвестные токены тоже добавляются в APP_ARGS
 #
-#   --config DIR
-#       Каталог YAML-контракта (benchmark/dataset/environment/query-suite/
-#       schema). По умолчанию: conf
-#
-#   --scale S|M|L
-#       Масштаб датасета из dataset.yaml:
-#         S = 100 GiB, M = 1024 GiB, L = 5120 GiB
-#       По умолчанию: S
-#
-#   --phase NAME
-#       Фаза pipeline: preflight | generate | materialize | run | final | all
-#       По умолчанию: all
-#
-#   --experiments LIST
-#       Фильтр ID экспериментов через запятую (например
-#       BLOOM_USER,COMPRESSION,ORC_PUSHDOWN). Пусто = все из benchmark.yaml
-#
-#   --engines LIST
-#       Список движков: spark,hive_tez,hive_llap
-#       По умолчанию: spark,hive_tez,hive_llap
-#
-#   --env-override PATH
-#       YAML overlay для null-полей environment.yaml (namenode, executor_*,
-#       llap_* и т.д.). Если файл не существует — флаг не передаётся.
-#
-#   --retain LIST
-#       ID layout’ов, которые оставить при --cleanup (через запятую).
-#       Обычно: RAW_ARRAY_BASE или выбранный BEST_ORC
-#
-#   --cleanup
-#       После materialize удалить на HDFS layout’ы вне --retain
-#       (экономия места при больших scale)
-#
-#   --results-dir DIR
-#       Локальный каталог отчётов на ноде. По умолчанию: results
-#       Внутри появится results/<runId>/{SUMMARY.txt,summary.csv,...}
-#
-#   --dry-run
-#       Только планирование/preflight без реальных Spark/Hive job’ов
-#
-#   --master URL
-#       Spark master для spark-submit. По умолчанию: yarn
-#       (как environment.spark.master)
-#
-#   --deploy-mode MODE
-#       client | cluster. По умолчанию: client
-#       client нужен, чтобы driver на ноде оркестрировал Hive JDBC локально.
-#
-#   --queue NAME
-#       YARN queue. По умолчанию: benchmark (environment.yarn.queue)
-#
-#   --driver-memory SIZE
-#       Память driver для spark-submit (например 4g). По умолчанию: 4g
-#
-#   --executor-memory SIZE
-#       Память executor. Если не задано — берётся из cluster defaults /
-#       env-override внутри приложения.
-#
-#   --executor-cores N
-#       Число ядер executor (опционально).
-#
-#   --num-executors N
-#       Число executor’ов (опционально).
-#
-#   --help
-#       Показать эту справку.
-#
-# Дополнительные аргументы после «--» уходят напрямую в orcbench.Main.
+# Примеры:
+#   ./scripts/run-benchmark.sh --jar ./orc-bench-…-all.jar --phase preflight \
+#       --env-override conf/environment.local.yaml
+#   ./scripts/run-benchmark.sh --dry-run-submit --phase preflight --scale S
 # =============================================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# --- значения по умолчанию (соответствуют environment.yaml / CLI) -----------
-JAR="build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar"   # --jar: fat jar приложения
-CONFIG_DIR="conf"                                   # --config: каталог YAML
-SCALE="S"                                           # --scale: S|M|L
-PHASE="all"                                         # --phase: фаза pipeline
-EXPERIMENTS=""                                      # --experiments: фильтр ID
-ENGINES="spark,hive_tez,hive_llap"                  # --engines: движки
-ENV_OVERRIDE="conf/environment.local.yaml"          # --env-override: overlay
-RETAIN=""                                           # --retain: сохранить layout’ы
-CLEANUP=0                                           # --cleanup: чистить HDFS
-RESULTS_DIR="results"                               # --results-dir: отчёты
-DRY_RUN=0                                           # --dry-run: без job’ов
-MASTER="yarn"                                       # --master: Spark master
-DEPLOY_MODE="client"                                # --deploy-mode: client|cluster
-QUEUE="benchmark"                                   # --queue: YARN queue
-DRIVER_MEMORY="4g"                                  # --driver-memory
-EXECUTOR_MEMORY=""                                  # --executor-memory (опц.)
-EXECUTOR_CORES=""                                   # --executor-cores (опц.)
-NUM_EXECUTORS=""                                    # --num-executors (опц.)
-EXTRA_APP_ARGS=()                                   # аргументы после --
+JAR="${ORC_BENCH_JAR:-}"
+MASTER="${ORC_BENCH_MASTER:-}"
+DEPLOY_MODE="${ORC_BENCH_DEPLOY_MODE:-}"
+QUEUE="${ORC_BENCH_QUEUE:-}"
+NUM_EXECUTORS="${ORC_BENCH_NUM_EXECUTORS:-}"
+EXECUTOR_CORES="${ORC_BENCH_EXECUTOR_CORES:-}"
+EXECUTOR_MEMORY="${ORC_BENCH_EXECUTOR_MEMORY:-}"
+PRINCIPAL="${ORC_BENCH_PRINCIPAL:-}"
+KEYTAB="${ORC_BENCH_KEYTAB:-}"
+DRY_RUN_SUBMIT=0
+ENV_YAML="${ORC_BENCH_ENV_YAML:-$ROOT/conf/environment.yaml}"
+
+APP_ARGS=()
+
+usage() {
+  sed -n '2,44p' "$0" | sed 's/^# \?//'
+  exit 2
+}
+
+yaml_value() {
+  local key="$1"
+  local yaml="${2:-$ENV_YAML}"
+  [[ -f "$yaml" ]] || return 0
+  grep -E "^[[:space:]]*${key}:" "$yaml" | head -1 \
+    | sed -E "s/.*:[\"']?[[:space:]]*//;s/[\"'][[:space:]]*$//;s/[[:space:]]*$//" || true
+}
+
+# Prefer CLI/env; else conf/environment.yaml; else hardcoded configs_final defaults.
+apply_yaml_defaults() {
+  if [[ -z "$MASTER" ]]; then
+    MASTER="$(yaml_value master)"
+    MASTER="${MASTER:-yarn}"
+  fi
+  if [[ -z "$DEPLOY_MODE" ]]; then
+    DEPLOY_MODE="$(yaml_value deploy_mode)"
+    DEPLOY_MODE="${DEPLOY_MODE:-cluster}"
+  fi
+  if [[ -z "$QUEUE" ]]; then
+    QUEUE="$(yaml_value queue)"
+    QUEUE="${QUEUE:-default}"
+  fi
+  if [[ -z "$NUM_EXECUTORS" ]]; then
+    NUM_EXECUTORS="$(yaml_value executor_instances)"
+    NUM_EXECUTORS="${NUM_EXECUTORS:-10}"
+  fi
+  if [[ -z "$EXECUTOR_CORES" ]]; then
+    EXECUTOR_CORES="$(yaml_value executor_cores)"
+    EXECUTOR_CORES="${EXECUTOR_CORES:-4}"
+  fi
+  if [[ -z "$EXECUTOR_MEMORY" ]]; then
+    local gib
+    gib="$(yaml_value executor_memory_gib)"
+    if [[ -n "$gib" ]]; then
+      EXECUTOR_MEMORY="${gib}g"
+    else
+      EXECUTOR_MEMORY="16g"
+    fi
+  fi
+  if [[ -z "$JAR" ]]; then
+    if [[ -f "$ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar" ]]; then
+      JAR="$ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar"
+    else
+      JAR="$ROOT/build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar"
+    fi
+  fi
+}
+
+load_kerberos_from_yaml() {
+  if [[ -z "$PRINCIPAL" ]]; then
+    PRINCIPAL="$(yaml_value runner_principal)"
+  fi
+  if [[ -z "$KEYTAB" ]]; then
+    local kt
+    kt="$(yaml_value keytab_path)"
+    if [[ -n "$kt" ]]; then
+      KEYTAB="${kt/#\~/$HOME}"
+    fi
+  fi
+}
+
+warn_not_cluster() {
+  if ! command -v spark-submit >/dev/null 2>&1; then
+    echo "[run-benchmark] WARNING: spark-submit not in PATH." >&2
+    echo "  This script is intended for a Hadoop cluster node." >&2
+    echo "  On a developer host: use --dry-run-submit, or build/package only;" >&2
+    echo "  see docs/Запуск на Hadoop кластере.md" >&2
+  fi
+  if ! command -v hdfs >/dev/null 2>&1; then
+    echo "[run-benchmark] WARNING: hdfs not in PATH (expected on cluster node)." >&2
+  fi
+  if command -v java >/dev/null 2>&1; then
+    local ver
+    ver="$(java -version 2>&1 | head -n1 || true)"
+    if echo "$ver" | grep -qE '"1[7-9]\.|"2[0-9]\.'; then
+      echo "[run-benchmark] WARNING: java looks like 17+: $ver" >&2
+      echo "  Prefer JDK 8 on the submit node (environment.yaml: 1.8.0_292)." >&2
+    fi
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) usage ;;
     --jar) JAR="$2"; shift 2 ;;
-    --config) CONFIG_DIR="$2"; shift 2 ;;
-    --scale) SCALE="$2"; shift 2 ;;
-    --phase) PHASE="$2"; shift 2 ;;
-    --experiments) EXPERIMENTS="$2"; shift 2 ;;
-    --engines) ENGINES="$2"; shift 2 ;;
-    --env-override) ENV_OVERRIDE="$2"; shift 2 ;;
-    --retain) RETAIN="$2"; shift 2 ;;
-    --cleanup) CLEANUP=1; shift ;;
-    --results-dir) RESULTS_DIR="$2"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
     --master) MASTER="$2"; shift 2 ;;
     --deploy-mode) DEPLOY_MODE="$2"; shift 2 ;;
     --queue) QUEUE="$2"; shift 2 ;;
-    --driver-memory) DRIVER_MEMORY="$2"; shift 2 ;;
-    --executor-memory) EXECUTOR_MEMORY="$2"; shift 2 ;;
-    --executor-cores) EXECUTOR_CORES="$2"; shift 2 ;;
     --num-executors) NUM_EXECUTORS="$2"; shift 2 ;;
-    --help|-h)
-      sed -n '2,90p' "$0"
-      exit 0
-      ;;
+    --executor-cores) EXECUTOR_CORES="$2"; shift 2 ;;
+    --executor-memory) EXECUTOR_MEMORY="$2"; shift 2 ;;
+    --principal) PRINCIPAL="$2"; shift 2 ;;
+    --keytab) KEYTAB="$2"; shift 2 ;;
+    --dry-run-submit) DRY_RUN_SUBMIT=1; shift ;;
+    --config|--scale|--phase|--experiments|--engines|--env-override|--results-dir|--keep-layouts|--run-id|--metrics-jsonl)
+      APP_ARGS+=("$1" "$2"); shift 2 ;;
+    --dry-run|--mock-generate|--mock-materialize|--mock-run|--cleanup-layouts)
+      APP_ARGS+=("$1"); shift ;;
     --)
       shift
-      EXTRA_APP_ARGS+=("$@")
-      break
-      ;;
+      APP_ARGS+=("$@")
+      break ;;
     *)
-      echo "Неизвестный параметр: $1 (см. --help)" >&2
-      exit 2
-      ;;
+      APP_ARGS+=("$1"); shift ;;
   esac
 done
 
-if [[ ! -f "$JAR" ]]; then
-  echo "ERROR: jar не найден: $JAR" >&2
-  echo "Соберите: ./scripts/with-jdk8.sh ./scripts/build.sh" >&2
-  exit 1
-fi
-if [[ ! -d "$CONFIG_DIR" ]]; then
-  echo "ERROR: каталог конфигов не найден: $CONFIG_DIR" >&2
-  exit 1
-fi
-command -v spark-submit >/dev/null || {
-  echo "ERROR: spark-submit не найден в PATH" >&2
-  exit 1
-}
+apply_yaml_defaults
+warn_not_cluster
+load_kerberos_from_yaml
 
-# --- аргументы spark-submit -------------------------------------------------
-SPARK_ARGS=(
+if [[ ! -f "$JAR" ]]; then
+  echo "ERROR: fat jar not found: $JAR" >&2
+  echo "  Build on JDK 8: ./scripts/build.sh  (or copy jar onto this node)" >&2
+  exit 1
+fi
+
+case "$DEPLOY_MODE" in
+  cluster|client) ;;
+  *)
+    echo "ERROR: --deploy-mode must be cluster or client (got: $DEPLOY_MODE)" >&2
+    exit 2 ;;
+esac
+
+SUBMIT=(
+  spark-submit
   --master "$MASTER"
   --deploy-mode "$DEPLOY_MODE"
   --queue "$QUEUE"
-  --driver-memory "$DRIVER_MEMORY"
+  --num-executors "$NUM_EXECUTORS"
+  --executor-cores "$EXECUTOR_CORES"
+  --executor-memory "$EXECUTOR_MEMORY"
   --class orcbench.Main
 )
-# Опциональные ресурсы executor (если заданы явно)
-[[ -n "$EXECUTOR_MEMORY" ]] && SPARK_ARGS+=(--executor-memory "$EXECUTOR_MEMORY")
-[[ -n "$EXECUTOR_CORES" ]] && SPARK_ARGS+=(--executor-cores "$EXECUTOR_CORES")
-[[ -n "$NUM_EXECUTORS" ]] && SPARK_ARGS+=(--num-executors "$NUM_EXECUTORS")
 
-# --- аргументы orcbench.Main ------------------------------------------------
-APP_ARGS=(
-  --config "$CONFIG_DIR"
-  --scale "$SCALE"
-  --phase "$PHASE"
-  --engines "$ENGINES"
-  --results-dir "$RESULTS_DIR"
-)
-[[ -n "$EXPERIMENTS" ]] && APP_ARGS+=(--experiments "$EXPERIMENTS")
-[[ -n "$RETAIN" ]] && APP_ARGS+=(--retain "$RETAIN")
-[[ "$CLEANUP" -eq 1 ]] && APP_ARGS+=(--cleanup)
-[[ "$DRY_RUN" -eq 1 ]] && APP_ARGS+=(--dry-run)
-# env-override передаём только если файл реально существует
-if [[ -n "$ENV_OVERRIDE" && -f "$ENV_OVERRIDE" ]]; then
-  APP_ARGS+=(--env-override "$ENV_OVERRIDE")
-elif [[ -n "$ENV_OVERRIDE" ]]; then
-  echo "WARNING: --env-override файл отсутствует ($ENV_OVERRIDE), пропускаем" >&2
+if [[ -n "$PRINCIPAL" && -n "$KEYTAB" ]]; then
+  if [[ ! -f "$KEYTAB" && "$DRY_RUN_SUBMIT" -eq 0 ]]; then
+    echo "WARNING: keytab not found at $KEYTAB (continuing; cluster mode may fail)" >&2
+  fi
+  SUBMIT+=(--principal "$PRINCIPAL" --keytab "$KEYTAB")
+elif [[ "$DEPLOY_MODE" == "cluster" ]]; then
+  echo "[run-benchmark] NOTE: no --principal/--keytab; for YARN cluster mode set" >&2
+  echo "  ORC_BENCH_PRINCIPAL / ORC_BENCH_KEYTAB or ensure conf/environment.yaml paths exist." >&2
 fi
-APP_ARGS+=("${EXTRA_APP_ARGS[@]}")
 
-echo "[run-benchmark] jar=$JAR"
-echo "[run-benchmark] scale=$SCALE phase=$PHASE engines=$ENGINES"
-echo "[run-benchmark] master=$MASTER deploy-mode=$DEPLOY_MODE queue=$QUEUE"
+SUBMIT+=("$JAR")
+SUBMIT+=("${APP_ARGS[@]}")
 
-exec spark-submit "${SPARK_ARGS[@]}" "$JAR" "${APP_ARGS[@]}"
+echo "[run-benchmark] deploy_mode=$DEPLOY_MODE queue=$QUEUE jar=$JAR"
+echo "[run-benchmark] app args: ${APP_ARGS[*]:-}"
+
+if [[ "$DRY_RUN_SUBMIT" -eq 1 ]]; then
+  printf '[run-benchmark] dry-run-submit:\n'
+  printf '  %q' "${SUBMIT[@]}"
+  printf '\n'
+  exit 0
+fi
+
+if ! command -v spark-submit >/dev/null 2>&1; then
+  echo "ERROR: spark-submit not found. Run this script on a cluster node with Spark 3.2." >&2
+  echo "  Local smoke without submit: add --dry-run-submit" >&2
+  exit 1
+fi
+
+exec "${SUBMIT[@]}"

@@ -1,6 +1,8 @@
 package orcbench.engine;
 
-import orcbench.model.Models.*;
+import orcbench.model.Models.QuerySampleManifest;
+import orcbench.model.Models.QuerySpec;
+import orcbench.model.Models.QuerySuiteContract;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,6 +11,10 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Binds query-suite SQL templates to table names and sample parameters
+ * (Checkpoint 6). Dialect / representation filters match {@code query-suite.yaml}.
+ */
 public final class QueryTemplate {
     private static final Pattern PARAM = Pattern.compile("\\$\\{([a-zA-Z0-9_]+)\\}");
 
@@ -24,12 +30,21 @@ public final class QueryTemplate {
         }
     }
 
-    public static BoundQuery resolveSql(QuerySpec query, QuerySuiteContract suite, String dialect,
-                                        String table, QuerySampleManifest samples, String representation) {
-        if (!query.representations.isEmpty() && !query.representations.contains(representation)) {
+    public static BoundQuery resolveSql(
+            QuerySpec query,
+            QuerySuiteContract suite,
+            String dialect,
+            String table,
+            QuerySampleManifest samples,
+            String representation) {
+        if (query == null) {
             return null;
         }
-        if (!query.dialects.isEmpty() && !query.dialects.contains(dialect)) {
+        if (!query.representations.isEmpty() && representation != null
+                && !query.representations.contains(representation)) {
+            return null;
+        }
+        if (!query.dialects.isEmpty() && dialect != null && !query.dialects.contains(dialect)) {
             return null;
         }
 
@@ -43,9 +58,14 @@ public final class QueryTemplate {
                 }
             }
         }
-        if (sql == null) return null;
+        if (sql == null) {
+            return null;
+        }
 
-        Map<String, String> params = new HashMap<>(suite.querySuite.defaults);
+        Map<String, String> params = new HashMap<String, String>();
+        if (suite.querySuite != null && suite.querySuite.defaults != null) {
+            params.putAll(suite.querySuite.defaults);
+        }
         params.put("table", table);
         params.put("module_dictionary_table", "module_dictionary");
         params.put("epk_dictionary_table", "epk_dictionary");
@@ -66,29 +86,40 @@ public final class QueryTemplate {
     }
 
     public static List<BoundQuery> queriesForExperiment(
-            QuerySuiteContract suite, List<String> experimentQueryIds, String dialect,
-            String table, QuerySampleManifest samples, String representation) {
-        List<QuerySpec> selected = new ArrayList<>();
+            QuerySuiteContract suite,
+            List<String> experimentQueryIds,
+            String dialect,
+            String table,
+            QuerySampleManifest samples,
+            String representation) {
+        List<QuerySpec> selected = new ArrayList<QuerySpec>();
         if (experimentQueryIds == null || experimentQueryIds.isEmpty()) {
             selected.addAll(suite.queries);
         } else {
             for (QuerySpec q : suite.queries) {
-                if (experimentQueryIds.contains(q.id)) selected.add(q);
+                if (experimentQueryIds.contains(q.id)) {
+                    selected.add(q);
+                }
             }
         }
-        List<BoundQuery> out = new ArrayList<>();
+        List<BoundQuery> out = new ArrayList<BoundQuery>();
         for (QuerySpec q : selected) {
             BoundQuery b = resolveSql(q, suite, dialect, table, samples, representation);
-            if (b != null) out.add(b);
+            if (b != null) {
+                out.add(b);
+            }
         }
         return out;
     }
 
     private static List<String> pick(QuerySampleManifest samples, String key, String caseName) {
-        if (samples.samples.containsKey(key) && samples.samples.get(key).containsKey(caseName)) {
+        if (samples != null
+                && samples.samples != null
+                && samples.samples.containsKey(key)
+                && samples.samples.get(key).containsKey(caseName)) {
             return samples.samples.get(key).get(caseName);
         }
-        return new ArrayList<>();
+        return new ArrayList<String>();
     }
 
     private static String first(List<String> list, String def) {

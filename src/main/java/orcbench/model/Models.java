@@ -7,22 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Runtime models loaded from the YAML contract. */
+/** Typed runtime models for the YAML contract (Checkpoint 2). */
 public final class Models {
     private Models() {}
-
-    public static final class CliArgs {
-        public String configDir = "conf";
-        public String scale = "S";
-        public String phase = "all";
-        public List<String> experiments = new ArrayList<>();
-        public List<String> engines = new ArrayList<>(java.util.Arrays.asList("spark", "hive_tez", "hive_llap"));
-        public String envOverride;
-        public List<String> retain = new ArrayList<>();
-        public boolean cleanup;
-        public String resultsDir = "results";
-        public boolean dryRun;
-    }
 
     public static final class LoadedConfig {
         public BenchmarkContract benchmark;
@@ -40,8 +27,10 @@ public final class Models {
         public Map<String, RepresentationSpec> representations = new LinkedHashMap<>();
         public List<PhysicalExperiment> physicalExperiments = new ArrayList<>();
         public ExecutionBaselines executionBaselines = new ExecutionBaselines();
+        public Map<String, EngineProfile> engineProfiles = new LinkedHashMap<>();
         public EngineExperiments engineExperiments = new EngineExperiments();
         public FinalComparison finalComparison = new FinalComparison();
+        public BestOrcRule bestOrcRule = new BestOrcRule();
         public RunsSection runs = new RunsSection();
         public MetricsSection metrics = new MetricsSection();
         public ConfigurationValidation configurationValidation = new ConfigurationValidation();
@@ -53,12 +42,9 @@ public final class Models {
         public long slaMeanLatencyMs = 3000L;
         public String isolation;
         public boolean requireResultEquivalence = true;
-        public String hdfsRoot = "/benchmarks/audit_orc";
+        public String hdfsRoot = "/orc_test";
         public String generatedHiveDdl = "generated/hive-table.sql";
         public List<String> derivedPartitionColumns = new ArrayList<>();
-        public Boolean llapRunningVerified;
-        public String tezVersion;
-        public String llapConfiguredMode = "only";
     }
 
     public static final class InputsSection {
@@ -109,11 +95,21 @@ public final class Models {
         public List<String> requiresForCentralized = new ArrayList<>();
         public String representation;
         public String bucketKey;
+        public String engine;
     }
 
     public static final class ExecutionBaselines {
         public Map<String, String> spark = new LinkedHashMap<>();
         public Map<String, String> hive = new LinkedHashMap<>();
+    }
+
+    public static final class EngineProfile {
+        public String extendsBaseline;
+        public Map<String, String> set = new LinkedHashMap<>();
+        public String prepare;
+        public String cacheState;
+        public String status;
+        public String reason;
     }
 
     public static final class EngineExperiments {
@@ -140,16 +136,51 @@ public final class Models {
         public List<String> engines = new ArrayList<>();
         public boolean requireIdenticalFileManifest = true;
         public boolean requireEqualQueryResults = true;
+        public List<String> queries = new ArrayList<>();
+    }
+
+    /**
+     * Selection rule for {@code BEST_ORC} from {@code benchmark.best_orc_rule}
+     * (Checkpoint 8). ZSTD is excluded from Hive-shared recommendations.
+     */
+    public static final class BestOrcRule {
+        public String objectiveRaw =
+                "min p50 over {Q02, Q03, Q07_NARROW}";
+        public List<String> objectiveQueries =
+                new ArrayList<>(java.util.Arrays.asList("Q02", "Q03", "Q07_NARROW"));
+        public String objectiveStat = "p50";
+        public String slaGateRaw = "success_rate >= 0.95";
+        public double slaSuccessRateMin = 0.95;
+        public String tieBreakRaw = "partitioned > sorted > baseline";
+        public String excludedCandidatesRaw =
+                "ZSTD (Hive side ORC 1.5.6 codec gap; Spark ZSTD kept; Hive ZSTD deferred until codec support)";
+        /** Always true for BEST_ORC used by Hive engines in final_comparison. */
+        public boolean excludeZstd = true;
+    }
+
+    /** Result of {@link orcbench.report.BestOrcSelector}. */
+    public static final class BestOrcChoice {
+        public String experimentId;
+        public String variantLabel;
+        public String layoutPath;
+        public double meanP50Ms;
+        public double meanSlaSuccessRate;
+        public boolean slaPassed;
+        public String tieBreakClass;
+        public List<String> notes = new ArrayList<>();
     }
 
     public static final class RunsSection {
         public int warmupPerQuery = 5;
         public int measuredPerQuery = 30;
+        /** Candidate ceiling from YAML; actual levels come from capacity-aware selection. */
         public List<Integer> concurrencyLevels = new ArrayList<>();
+        public String concurrencyPolicy = "per_scale_capacity_aware";
         public boolean cacheStatesNotAggregated = true;
         public boolean recordExplainPlans = true;
         public boolean compareCompleteResults = true;
         public String timingScope;
+        public long maxFetchRows = 10_000_000L;
     }
 
     public static final class MetricsSection {
@@ -180,6 +211,7 @@ public final class Models {
 
     public static final class DatasetSection {
         public String id;
+        public int specVersion;
         public String canonicalSchemaFile;
         public String canonicalRepresentation = "RAW_ARRAY";
         public String prohibitedData;
@@ -257,7 +289,9 @@ public final class Models {
 
     public static final class EnvironmentSection {
         public String id;
+        public int specVersion;
         public String timeZone = "UTC";
+        public SecurityEnv security = new SecurityEnv();
         public Map<String, Optional<String>> versions = new LinkedHashMap<>();
         public HdfsEnv hdfs = new HdfsEnv();
         public YarnEnv yarn = new YarnEnv();
@@ -267,11 +301,23 @@ public final class Models {
         public PreflightEnv preflight = new PreflightEnv();
     }
 
+    public static final class SecurityEnv {
+        public boolean enabled = true;
+        public String mechanism = "kerberos";
+        public String runnerPrincipal;
+        public String keytabPath;
+        public Boolean kinitVerified;
+        public String realm;
+        public String hiveJdbcAuth;
+    }
+
     public static final class HdfsEnv {
         public String namenodeUri;
         public Integer defaultReplication;
         public Integer blockSizeMib;
         public Long freeSpaceGib;
+        public String workDir = "/orc_test";
+        public Boolean writeVerified;
         public Boolean shortCircuitSupported;
         public Boolean shortCircuitEnabled;
         public boolean shortCircuitMutableByRunner;
@@ -282,7 +328,8 @@ public final class Models {
 
     public static final class YarnEnv {
         public String resourceManager;
-        public String queue = "benchmark";
+        public String resourceManagerStandby;
+        public String queue = "default";
         public Long availableMemoryGib;
         public Integer availableVcores;
     }
@@ -298,9 +345,10 @@ public final class Models {
 
     public static final class HiveEnv {
         public String jdbcUrl;
+        public String metastoreUri;
         public boolean tezAvailable = true;
         public Boolean llapAvailable;
-        public Boolean llapDaemons;
+        public String llapDaemons;
         public Double llapCacheGib;
         public Boolean materializedViewsSupported;
         public String bucketVersion;
@@ -309,6 +357,7 @@ public final class Models {
         public Boolean llapDaemonsRunningVerified;
         public boolean jdbcConnectionVerified;
         public boolean llapConfigured;
+        public boolean ddlExecutionVerified;
         public String connectionJdbcUrl;
         public Map<String, String> observedProperties = new LinkedHashMap<>();
     }
@@ -337,6 +386,7 @@ public final class Models {
 
     public static final class QuerySuiteSection {
         public String id;
+        public int specVersion;
         public Map<String, String> defaults = new LinkedHashMap<>();
         public String parameterSource;
         public List<String> dialects = new ArrayList<>();
@@ -372,6 +422,7 @@ public final class Models {
         }
     }
 
+    /** One runnable cell of the OVAT / engine matrix. */
     public static final class ExperimentInstance {
         public String experimentId;
         public String kind;
@@ -394,18 +445,95 @@ public final class Models {
         public String skipReason;
     }
 
+    public static final class ExperimentPlan {
+        public String scale;
+        public List<ExperimentInstance> physical = new ArrayList<>();
+        public List<ExperimentInstance> engine = new ArrayList<>();
+        public List<ExperimentInstance> finalComparison = new ArrayList<>();
+        public List<Integer> concurrencyCandidates = new ArrayList<>();
+        public List<Integer> concurrencySelected = new ArrayList<>();
+        public String concurrencyNote;
+    }
+
+    /** Preflight capability / skip-matrix report (Checkpoint 3). */
     public static final class CapabilityReport {
         public Map<String, Boolean> capabilities = new LinkedHashMap<>();
         public Map<String, String> versions = new LinkedHashMap<>();
         public List<String> notes = new ArrayList<>();
+        /** Rows: [experimentId/variant, reason]. */
         public List<String[]> skippedExperiments = new ArrayList<>();
     }
 
+    /**
+     * Deterministic query placeholder samples produced during generate
+     * (Checkpoint 4). Used by later query runners.
+     */
     public static final class QuerySampleManifest {
         public Map<String, Map<String, List<String>>> samples = new LinkedHashMap<>();
         public List<String> partitionDates = new ArrayList<>();
+        public long estimatedRows;
+        public String basePath;
+        public String refsPath;
+        public String manifestPath;
     }
 
+    /** Summary of a generate-phase execution (Checkpoint 4). */
+    public static final class GenerateResult {
+        public String scale;
+        public long targetLogicalGib;
+        public long estimatedRows;
+        public String basePath;
+        public String refsPath;
+        public String manifestPath;
+        public boolean dryRun;
+        public boolean mocked;
+        public QuerySampleManifest samples = new QuerySampleManifest();
+        public List<String> notes = new ArrayList<>();
+    }
+
+    /**
+     * Summary of a materialize-phase execution (Checkpoint 5).
+     * Layouts are rewritten from {@code RAW_ARRAY_BASE} with OVAT factors.
+     */
+    public static final class MaterializeResult {
+        public String scale;
+        public String basePath;
+        public boolean dryRun;
+        public boolean mocked;
+        public int plannedWrites;
+        public int written;
+        public int skippedExistingMarker;
+        public int skippedOther;
+        public int cleaned;
+        public List<String> layoutPaths = new ArrayList<>();
+        public List<String> markerPaths = new ArrayList<>();
+        public List<String> ddlStatements = new ArrayList<>();
+        public List<String> notes = new ArrayList<>();
+    }
+
+    /**
+     * Immutable write request handed to {@link orcbench.layout.MaterializeBackend}
+     * for one OVAT layout variant.
+     */
+    public static final class LayoutWriteRequest {
+        public String experimentId;
+        public String variantLabel;
+        public String kind;
+        public String sourceBasePath;
+        public String layoutPath;
+        public String representation;
+        public OrcWriteSettings orcSettings = new OrcWriteSettings();
+        public List<String> partitionColumns = new ArrayList<>();
+        public List<String> sorting = new ArrayList<>();
+        public List<String> flatColumns = new ArrayList<>();
+        public int bucketCount;
+        public String bucketKey;
+        public int targetFileSizeMib;
+        public long sourceBytesEstimate;
+        public String markerPath;
+    }
+
+    /** One query attempt (warmup or measured) from Spark/Hive runners (Checkpoint 6+). */
     public static final class RunResult {
         public String runId;
         public String experimentId;
@@ -434,6 +562,7 @@ public final class Models {
         public String errorMessage;
     }
 
+    /** Aggregated latency / SLA / scan stats over measured ok attempts. */
     public static final class AggregateStats {
         public String experimentId;
         public String variantLabel;
@@ -451,7 +580,40 @@ public final class Models {
         public String resultHash;
     }
 
+    /** Summary of a Spark {@code --phase run} execution (Checkpoint 6). */
+    public static final class RunPhaseResult {
+        public String runId;
+        public String scale;
+        public boolean dryRun;
+        public boolean mocked;
+        public int experimentsPlanned;
+        public int experimentsRun;
+        public int experimentsSkipped;
+        public int attempts;
+        public String metricsJsonlPath;
+        public List<RunResult> results = new ArrayList<>();
+        public List<String> notes = new ArrayList<>();
+    }
+
+    /** Summary of {@code --phase report} / {@code --phase final} (Checkpoint 8). */
+    public static final class ReportPhaseResult {
+        public String runId;
+        public String scale;
+        public boolean dryRun;
+        public boolean mocked;
+        public String phase;
+        public String outputDir;
+        public String metricsJsonlPath;
+        public int resultRows;
+        public int aggregateRows;
+        public int skippedRows;
+        public BestOrcChoice bestOrc;
+        public int finalComparisonCells;
+        public boolean slaGateOverall;
+        public List<String> notes = new ArrayList<>();
+    }
+
     public static <T> List<T> listOrEmpty(List<T> in) {
-        return in == null ? Collections.emptyList() : in;
+        return in == null ? Collections.<T>emptyList() : in;
     }
 }

@@ -3,7 +3,10 @@ package orcbench.metrics;
 import orcbench.model.Models.AggregateStats;
 import orcbench.model.Models.RunResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -53,5 +56,41 @@ class MetricsStoreTest {
                 Arrays.asList(sample(5000, "A"), sample(2000, "B"), c), 3000L);
         String best = MetricsStore.rankBestOrc(agg, new HashSet<>(Arrays.asList("A", "B", "C")));
         assertEquals("C", best);
+    }
+
+    @Test
+    void appendJsonlCreatesFile(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("metrics.jsonl");
+        MetricsStore.appendJsonl(out.toString(), Arrays.asList(sample(100, "E1")));
+        assertTrue(Files.exists(out));
+        String body = new String(Files.readAllBytes(out), "UTF-8");
+        assertTrue(body.contains("\"experimentId\":\"E1\""));
+        assertTrue(body.contains("\"resultHash\":\"abc\""));
+    }
+
+    @Test
+    void readJsonlRoundTrip(@TempDir Path tmp) throws Exception {
+        Path out = tmp.resolve("metrics.jsonl");
+        RunResult original = sample(123, "E1");
+        original.warmup = true;
+        original.cacheState = "warm";
+        MetricsStore.appendJsonl(out.toString(), Arrays.asList(original));
+        List<RunResult> back = MetricsStore.readJsonl(out.toString());
+        assertEquals(1, back.size());
+        assertEquals("E1", back.get(0).experimentId);
+        assertEquals(123L, back.get(0).latencyMs);
+        assertTrue(back.get(0).warmup);
+        assertEquals("warm", back.get(0).cacheState);
+        assertEquals("abc", back.get(0).resultHash);
+    }
+
+    @Test
+    void readFixtureMetrics() throws Exception {
+        List<RunResult> rows = MetricsStore.readJsonl(
+                "src/test/resources/fixtures/cp8/metrics.jsonl");
+        assertTrue(rows.size() >= 12);
+        assertTrue(rows.stream().anyMatch(r -> "skipped".equals(r.status)));
+        assertTrue(rows.stream().anyMatch(r ->
+                r.variantLabel != null && r.variantLabel.contains("ZSTD")));
     }
 }

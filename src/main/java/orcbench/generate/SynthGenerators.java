@@ -6,15 +6,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Deterministic column value generators for {@code audit_synth_v1}
+ * ({@code dataset.yaml} generation.algorithm_version).
+ */
 public final class SynthGenerators {
     private SynthGenerators() {}
 
     public static long mix(long seed, long rowId, String column, String algo) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] dig = md.digest((seed + "|" + rowId + "|" + column + "|" + algo).getBytes(StandardCharsets.UTF_8));
+            byte[] dig = md.digest((seed + "|" + rowId + "|" + column + "|" + algo)
+                    .getBytes(StandardCharsets.UTF_8));
             long v = 0L;
-            for (int i = 0; i < 8; i++) v = (v << 8) | (dig[i] & 0xffL);
+            for (int i = 0; i < 8; i++) {
+                v = (v << 8) | (dig[i] & 0xffL);
+            }
             return v;
         } catch (Exception e) {
             throw new IllegalStateException(e);
@@ -28,17 +35,21 @@ public final class SynthGenerators {
         return abs % c;
     }
 
-    public static String prefixedId(long seed, long rowId, String column, String algo, String prefix, long cardinality) {
-        return prefix + bounded(seed, rowId, column, algo, cardinality);
+    public static String prefixedId(long seed, long rowId, String column, String algo,
+                                    String prefix, long cardinality) {
+        return (prefix == null ? "" : prefix) + bounded(seed, rowId, column, algo, cardinality);
     }
 
-    public static String dictionary(long seed, long rowId, String column, String algo, String prefix, long cardinality) {
-        return prefix + bounded(seed, rowId, column, algo, cardinality);
+    public static String dictionary(long seed, long rowId, String column, String algo,
+                                    String prefix, long cardinality) {
+        return prefixedId(seed, rowId, column, algo, prefix, cardinality);
     }
 
     public static String weightedPick(long seed, long rowId, String column, String algo,
-                                     List<String> values, List<Double> weights) {
-        if (values == null || values.isEmpty()) throw new IllegalArgumentException("empty values");
+                                      List<String> values, List<Double> weights) {
+        if (values == null || values.isEmpty()) {
+            throw new IllegalArgumentException("empty values");
+        }
         double total = 0;
         for (int i = 0; i < values.size(); i++) {
             total += (weights != null && weights.size() == values.size()) ? weights.get(i) : 1.0;
@@ -47,7 +58,9 @@ public final class SynthGenerators {
         double acc = 0;
         for (int i = 0; i < values.size(); i++) {
             acc += (weights != null && weights.size() == values.size()) ? weights.get(i) : 1.0;
-            if (r <= acc) return values.get(i);
+            if (r <= acc) {
+                return values.get(i);
+            }
         }
         return values.get(values.size() - 1);
     }
@@ -68,13 +81,15 @@ public final class SynthGenerators {
         return "203.0.113." + bounded(seed, rowId, column, algo, 256);
     }
 
-    public static long timestampUniform(long seed, long rowId, String column, String algo, long fromMs, long toExclusiveMs) {
+    public static long timestampUniform(long seed, long rowId, String column, String algo,
+                                        long fromMs, long toExclusiveMs) {
         long span = Math.max(1L, toExclusiveMs - fromMs);
         return fromMs + bounded(seed, rowId, column, algo, span);
     }
 
-    public static String fakeToken(long seed, long rowId, String column, String algo, String prefix, long cardinality) {
-        return prefix + bounded(seed, rowId, column, algo, cardinality);
+    public static String fakeToken(long seed, long rowId, String column, String algo,
+                                   String prefix, long cardinality) {
+        return prefixedId(seed, rowId, column, algo, prefix, cardinality);
     }
 
     @SuppressWarnings("unchecked")
@@ -91,7 +106,8 @@ public final class SynthGenerators {
     }
 
     @SuppressWarnings("unchecked")
-    private static String enumVal(Map<String, Object> template, String key, long seed, long rowId, String algo, String... fallback) {
+    private static String enumVal(Map<String, Object> template, String key, long seed, long rowId,
+                                  String algo, String... fallback) {
         Object node = template == null ? null : template.get(key);
         if (node instanceof Map) {
             Object values = ((Map<String, Object>) node).get("values");

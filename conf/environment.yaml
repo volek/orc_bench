@@ -1,7 +1,18 @@
 # Confirmed facts from cluster output, unknowns preserved as null.
+# spec_version 2 (2026-10-16): single source of environment facts (2.15); hs2 limits pending owner.
 environment:
   id: sdp_3_5_4_1_1
+  spec_version: 2
   time_zone: UTC
+  security:
+    enabled: true
+    mechanism: kerberos
+    runner_principal: pvm-omltp-sdp@OPSMON.SBT
+    keytab_path: ~/keytab/pvm-omltp-sdp.keytab
+    kinit_verified: true
+    realm: OPSMON.SBT
+    hive_jdbc_auth: kerberos
+    ticket_renewable_days: 7
   versions:
     java: 1.8.0_292
     hadoop: 3.1.3.3.5.4.1-1
@@ -11,47 +22,55 @@ environment:
     tez: 0.9.1.3.5.4.1-1
     llap: null
     scala: 2.12.15
-    orc_spark: null
-    orc_hive: null
-    orc_generator: null
+    orc_spark: 1.6.12
+    orc_hive: 1.5.6
+    orc_generator: 1.6.12
   hdfs:
-    namenode_uri: null
-    default_replication: null
-    block_size_mib: null
-    free_space_gib: null
+    namenode_uri: hdfs://sdp-dzo-lt-omlt
+    default_replication: 2
+    block_size_mib: 128
+    free_space_gib: 18067
     short_circuit_read:
-      supported: null
-      enabled: null
+      supported: true
+      enabled: true
       mutable_by_runner: false
     centralized_cache:
       supported: null
       mutable_by_runner: false
-    data_locality_verifiable: null
+    data_locality_verifiable: true
+    work_dir: /orc_test
+    write_verified: true
   yarn:
-    resource_manager: null
-    queue: benchmark
-    available_memory_gib: null
-    available_vcores: null
+    resource_manager: omlt-abyss-sdp-namenode-02.opsmon.sbt:8088
+    resource_manager_standby: omlt-abyss-sdp-namenode-01.opsmon.sbt
+    queue: default
+    # Effective_Max_Capacity snapshot for first-run sizing (MB→GiB): 221184 MB ≈ 216 GiB, vCores 67; 6 datanodes.
+    available_memory_gib: 216
+    available_vcores: 67
   spark:
     master: yarn
+    # Default cluster; override to client in environment.local.yaml when needed.
     deploy_mode: cluster
-    executor_instances: null
-    executor_cores: null
-    executor_memory_gib: null
-    enable_hive_support: null
+    # First-trial sizing (finalize after first trial run). Headroom vs Effective_Max_Capacity 221184 MB / 67 vCores.
+    executor_instances: 10
+    executor_cores: 4
+    executor_memory_gib: 16
+    enable_hive_support: true
   hive:
-    jdbc_url: null
+    jdbc_url: jdbc:hive2://omlt-abyss-sdp-namenode-01.opsmon.sbt:2181,omlt-abyss-sdp-namenode-02.opsmon.sbt:2181,omlt-abyss-sdp-srv-01.opsmon.sbt:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2
+    metastore_uri: thrift://omlt-abyss-sdp-datanode-03.opsmon.sbt:9083
     tez_available: true
-    llap_available: null
-    llap_daemons: null
+    llap_available: true
+    llap_daemons: omlt-abyss-sdp-datanode-03.opsmon.sbt
     llap_cache_gib: null
-    materialized_views_supported: null
-    bucket_version: null
+    materialized_views_supported: false
+    bucket_version: 'supported (probe 2026-10-16: CLUSTERED BY (k) INTO 4 BUCKETS, Num Buckets: 4)'
     llap_app_name: llap0
     llap_execution_mode: only
     execution_mode_reported: llap
     orc_split_strategy: HYBRID
     llap_daemons_running_verified: null
+    ddl_execution_verified: true
     jdbc_connection_verified: true
     llap_configured: true
     observed_properties:
@@ -60,10 +79,14 @@ environment:
       hive.exec.orc.split.strategy: HYBRID
     connection:
       type: beeline
+      auth: kerberos
+      principal: pvm-omltp-sdp@OPSMON.SBT
       service_discovery: zooKeeper
       zooKeeperNamespace: hiveserver2
       jdbc_url: jdbc:hive2://omlt-abyss-sdp-namenode-01.opsmon.sbt:2181,omlt-abyss-sdp-namenode-02.opsmon.sbt:2181,omlt-abyss-sdp-srv-01.opsmon.sbt:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2
       verified: true
+    hs2_instances: null
+    hs2_max_sessions: null
   operations:
     permission_to_reset_caches: false
     permission_to_change_cluster_config: false
@@ -77,5 +100,63 @@ environment:
     mark_unavailable_experiments_as_skipped: true
     require_tez_version_probe: false
     require_java8_runtime_check: true
-  versions_note: Tez 0.9.1.3.5.4.1-1 confirmed by tez-api pom.properties; Hive JDBC connection verified; LLAP is configured
-    as only with app name llap0 but live daemon state is unverified; ORC runtime JAR versions unknown.
+  versions_note: |-
+    Tez 0.9.1.3.5.4.1-1 confirmed by tez-api pom.properties; Hive JDBC connection verified; LLAP is
+    configured as only with app name llap0, probe 2026-10-16 (query with hive.llap.execution.mode=only) failed -
+    daemons do not run (llap_available/llap_daemons_running_verified: false). ORC runtime JAR versions known from
+    host: Spark distribution 1.6.12 (/usr/sdp/3.5.4.1-1/spark3/jars/orc-core-1.6.12.jar, orc-mapreduce-1.6.12.jar),
+    Hive 1.5.6 (/usr/sdp/3.5.4.1-1/hive/lib/orc-core-1.5.6.jar); orc_generator is the Spark runtime writer the
+    runner uses for materialization; orc_writer (original sample) stays unknown (footer orc_format_version 0.12 is
+    a format version, not a library version). Host check 2026-10-16 (docs/check_host_result.txt): fs.defaultFS
+    hdfs://sdp-dzo-lt-omlt (HA nameservice; NN omlt-abyss-sdp-namenode-01/02.opsmon.sbt, RPC-SSL 50470); HDFS
+    45.3 TiB total / 19.1 TiB used / 17.5 TiB free (snapshot), replication 2, block 128 MiB, 6 datanodes
+    omlt-abyss-sdp-datanode-01..06.opsmon.sbt, 1 rack; dfs.client.use.legacy.blockreader.local=false (new
+    short-circuit read path); YARN queues default 60% (max 80%) and llap 40% (max 60%) - no benchmark queue in
+    output, spark.yarn.queue default; decision 2026-10-16: the benchmark runs in the default queue (no dedicated
+    queue requested); MV probe failed: config hive.materializedview.rewrite.enabled does not exist
+    in vendor build (automatic MV rewrite unavailable, HIVE_MATERIALIZED_VIEW to be skipped); bucketing probe OK
+    (Num Buckets: 4); Spark jars include hive-exec-2.3.9-core.jar (orc.impl=hive runs through Hive 2.3.x-line ORC,
+    not 1.5.6) and spark-hive_2.12-3.2.1.3.5.4.1-1.jar; RM hostname value not captured (grep showed key only) -
+    recheck with grep -A1. Host check 2 (2026-10-16 14:46, docs/check_host_result2.txt): LLAP state changed after
+    the morning probe - /etc/hive_llap/conf is deployed (hive-site.xml modified 12:22), llap0 is RUNNING as
+    application_1792148376721_0003 and a TEZ query app runs in llap queue (Current Capacity 26.9%); earlier
+    sessions: llap0 FINISHED/ENDED, TEZ HIVE apps repeatedly FAILED; llap_daemons_running_verified reset to null -
+    the 10:39 beeline probe predates the restart, rerun it with hive.llap.execution.mode=only; application -status
+    of llap0: user hive, queue llap, AM Host omlt-abyss-sdp-datanode-02.opsmon.sbt (RPC 44945), Start-Time
+    1792148540690 (2026-10-16 ~14:02 MSK), TimeoutType LIFETIME/UNLIMITED, Diagnostics empty, Tracking-URL N/A -
+    a live long-running service; the FAILED TEZ apps in history belong to earlier RM sessions of the same day
+    (several RM restarts during config rework); still not captured: daemon list (AM UI of llap0 or zookeeper-shell
+    ls /llap), cache size, llap package version. Security: Kerberos enabled - operator login verified 2026-10-16
+    with kinit -kt ~/keytab/pvm-omltp-sdp.keytab pvm-omltp-sdp (fsck shows ugi=pvm-omltp-sdp auth KERBEROS_SSL,
+    beeline to HS2 works under the same ticket, hence hive_jdbc_auth: kerberos);     realm = OPSMON.SBT
+    (default_realm from /etc/krb5.conf); Kerberos ticket policy observed 2026-10-17 (klist, TGT
+    hive/omlt-abyss-sdp-datanode-03.opsmon.sbt@OPSMON.SBT): renewable until 10/23/2026 (~7 days) - enough for
+    multi-hour phases, renew via kinit -R or re-login from keytab; remaining Kerberos item is keytab availability
+    on nodes for spark-submit --keytab in cluster mode. spark-submit on YARN takes --principal/--keytab accordingly. Benchmark HDFS root switched to /orc_test
+    (exists, fsck HEALTHY 2026-10-16, writable working area of the benchmark team; benchmark.yaml hdfs_root
+    updated) - closes the write-permission gap M8 for the current principal pvm-omltp-sdp; quota check not done.
+    Queue snapshot 2026-10-16 15:48 (yarn queue -status default): RUNNING, Capacity 60%, Maximum 80%, Current
+    Capacity 0.0% - default queue fully free at snapshot; absolute MB/cores still not captured (CLI does not
+    print them; use RM REST /ws/v1/cluster/queues/default or yarn node -list -all). RM is HA (yarn-site): rm1 =
+    omlt-abyss-sdp-namenode-02.opsmon.sbt, rm2 = omlt-abyss-sdp-namenode-01.opsmon.sbt; yarn.resourcemanager.hostname
+    points to omlt-abyss-sdp-namenode-02.opsmon.sbt:8088 (UI port baked into the hostname property in this
+    config). Quota check 2026-10-16 (hdfs dfsadmin -report -path /orc_test): output is the cluster-wide
+    report only (configured 45.26 TiB, present 36.69 TiB, used 19.05 TiB / 51.91%, remaining 17.64 TiB =
+    18067 GiB - free_space_gib updated); no per-path Quota/DiskQuota lines shown, but the -path option may
+    be unsupported on this Hadoop 3.1.3 build - direct confirmation needs hdfs dfs -count -q -h /orc_test
+    (none/empty quota columns). Full dfsadmin -report 2026-10-16 16:04 MSK: 6 live datanodes 01..06 all
+    Normal, ~7.87 TiB each; free space skewed - dn-01 5.20 TiB (13.98% used) vs dn-02 2.47 / dn-03 2.68 /
+    dn-04 2.72 TiB (43-48% used); under-replicated blocks 8, corrupt 0, missing 0; Configured Cache Capacity
+    0 on every reported datanode - centralized C-cache has no footprint on this cluster (field kept null
+    for the vendor, preflight to mark HDFS_CACHE.centralized as skipped). DDL probe 2026-10-16 16:08
+    (beeline, ZK discovery connected to omlt-abyss-sdp-datanode-03.opsmon.sbt:10000): CREATE DATABASE
+    bench_probe_ddl + DROP DATABASE succeeded under pvm-omltp-sdp -> ddl_execution_verified: true; HS2
+    instance lives on datanode-03:10000; CREATE EXTERNAL TABLE with LOCATION under /orc_test not yet probed.
+    LLAP rerun probe 2026-10-16 16:24: INDETERMINATE - query succeeded but ran as YARN containers
+    (vertex MODE=container, new TEZ app application_1792148376721_0006, llap0 is _0003); the SET line was
+    pasted with a shell prompt prefix ("> SET ...") so hive.llap.execution.mode=only likely never reached
+    the session; rerun clean via --hiveconf (see versions_note procedure) and confirm llap0 _0003 still
+    RUNNING before setting llap_daemons_running_verified. llap0 recheck 2026-10-16 16:28:
+    application_1792148376721_0003 RUNNING (user hive, queue llap, AM datanode-02, RPC 44945, TimeoutType
+    LIFETIME/UNLIMITED, diagnostics empty) - LLAP app is a live long-running service; daemon-level task
+    execution still pending the clean --hiveconf rerun.

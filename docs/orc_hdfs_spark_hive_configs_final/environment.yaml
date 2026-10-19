@@ -44,14 +44,17 @@ environment:
     resource_manager: omlt-abyss-sdp-namenode-02.opsmon.sbt:8088
     resource_manager_standby: omlt-abyss-sdp-namenode-01.opsmon.sbt
     queue: default
-    available_memory_gib: null
-    available_vcores: null
+    # Effective_Max_Capacity snapshot for first-run sizing (MB→GiB): 221184 MB ≈ 216 GiB, vCores 67; 6 datanodes.
+    available_memory_gib: 216
+    available_vcores: 67
   spark:
     master: yarn
+    # Default cluster; override to client in environment.local.yaml when needed.
     deploy_mode: cluster
-    executor_instances: null
-    executor_cores: null
-    executor_memory_gib: null
+    # First-trial sizing (finalize after first trial run). Headroom vs Effective_Max_Capacity 221184 MB / 67 vCores.
+    executor_instances: 10
+    executor_cores: 4
+    executor_memory_gib: 16
     enable_hive_support: true
   hive:
     jdbc_url: jdbc:hive2://omlt-abyss-sdp-namenode-01.opsmon.sbt:2181,omlt-abyss-sdp-namenode-02.opsmon.sbt:2181,omlt-abyss-sdp-srv-01.opsmon.sbt:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2

@@ -1,86 +1,65 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-preflight.sh — быстрый preflight на ноде кластера
+# run-preflight.sh — удобный запуск фазы preflight через run-benchmark.sh
 #
 # Назначение:
-#   Проверить версии, HDFS capacity, Hive JDBC, capability-матрицу и записать
-#   отчёт в results/<runId>/ без генерации данных и без тяжёлых job’ов.
+#   Вызывает run-benchmark.sh с --phase preflight.
+#   По умолчанию добавляет --dry-run (проверки по конфигу через spark-submit).
+#   Живые пробы HDFS/JDBC/Kerberos — на узле кластера с флагом --live.
+#   На машине разработчика: --dry-run-submit.
 #
-# Использование:
-#   ./scripts/run-preflight.sh
-#   ./scripts/run-preflight.sh --dry-run
-#   ./scripts/run-preflight.sh --jar /opt/orc-bench/orc-bench-all.jar \
-#       --env-override conf/environment.local.yaml
+# Параметры:
+#   -h, --help         показать эту справку
+#   --live             живые пробы (без --dry-run у приложения)
+#   --dry-run-submit   только печать строки spark-submit (без submit)
+#   остальные args     пробрасываются в run-benchmark.sh
+#                      (напр. --env-override, --jar, --deploy-mode, …)
 #
-# Параметры скрипта:
-#
-#   --jar PATH
-#       Fat jar orc-bench. По умолчанию:
-#       build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar
-#
-#   --config DIR
-#       Каталог YAML-контракта. По умолчанию: conf
-#
-#   --env-override PATH
-#       Overlay для null-полей environment. По умолчанию:
-#       conf/environment.local.yaml (если файла нет — не передаётся)
-#
-#   --results-dir DIR
-#       Куда писать SUMMARY/skipped. По умолчанию: results
-#
-#   --dry-run
-#       Не ходить в Hive JDBC / тяжёлые probe’ы; только разбор конфигов
-#       и локальные проверки (удобно до открытия сетевых ACL).
-#
-#   --queue NAME
-#       YARN queue для spark-submit. По умолчанию: benchmark
-#
-#   --help
-#       Справка.
+# Примеры:
+#   ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
+#   ./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
+#   ./scripts/run-preflight.sh --dry-run-submit
 # =============================================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+LIVE=0
+DRY_RUN_SUBMIT=0
+FORWARD=()
 
-# --- значения по умолчанию --------------------------------------------------
-JAR="build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar"  # --jar
-CONFIG_DIR="conf"                                  # --config
-ENV_OVERRIDE="conf/environment.local.yaml"         # --env-override
-RESULTS_DIR="results"                              # --results-dir
-DRY_RUN=0                                          # --dry-run
-QUEUE="benchmark"                                  # --queue
+usage() {
+  sed -n '2,22p' "$0" | sed 's/^# \?//'
+  exit 2
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --jar) JAR="$2"; shift 2 ;;
-    --config) CONFIG_DIR="$2"; shift 2 ;;
-    --env-override) ENV_OVERRIDE="$2"; shift 2 ;;
-    --results-dir) RESULTS_DIR="$2"; shift 2 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    --queue) QUEUE="$2"; shift 2 ;;
-    --help|-h)
-      sed -n '2,45p' "$0"
-      exit 0
-      ;;
-    *)
-      echo "Неизвестный параметр: $1 (см. --help)" >&2
-      exit 2
-      ;;
+    -h|--help) usage ;;
+    --live) LIVE=1; shift ;;
+    --dry-run-submit) DRY_RUN_SUBMIT=1; shift ;;
+    *) FORWARD+=("$1"); shift ;;
   esac
 done
 
-ARGS=(
-  --jar "$JAR"
-  --config "$CONFIG_DIR"
-  --scale S
-  --phase preflight
-  --engines spark
-  --results-dir "$RESULTS_DIR"
-  --queue "$QUEUE"
-  --env-override "$ENV_OVERRIDE"
-)
-# --dry-run: без реальных JDBC/кластерных probe’ов
-[[ "$DRY_RUN" -eq 1 ]] && ARGS+=(--dry-run)
+ARGS=(--phase preflight)
+if [[ "$LIVE" -eq 0 ]]; then
+  ARGS+=(--dry-run)
+  echo "[run-preflight] mode=dry-run (pass --live for live HDFS/JDBC/Kerberos probes)"
+else
+  echo "[run-preflight] mode=live (requires Kerberos context + cluster access)"
+fi
 
-exec "$ROOT/scripts/run-benchmark.sh" "${ARGS[@]}"
+if [[ "$DRY_RUN_SUBMIT" -eq 1 ]]; then
+  ARGS+=(--dry-run-submit)
+  echo "[run-preflight] dry-run-submit: printing spark-submit line only (no cluster)"
+fi
+
+if [[ "$DRY_RUN_SUBMIT" -eq 0 ]] && ! command -v spark-submit >/dev/null 2>&1; then
+  echo "[run-preflight] ERROR: spark-submit not in PATH." >&2
+  echo "  Run on a cluster node after copying jar+conf+scripts." >&2
+  echo "  Local smoke: ./scripts/run-preflight.sh --dry-run-submit" >&2
+  echo "  See docs/Запуск на Hadoop кластере.md" >&2
+  exit 1
+fi
+
+exec "$ROOT/scripts/run-benchmark.sh" "${ARGS[@]}" "${FORWARD[@]}"

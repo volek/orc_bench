@@ -1,35 +1,20 @@
-# Copy to environment.local.yaml and fill nulls discovered on the cluster.
-# Usage: --env-override conf/environment.local.yaml
+# Copy to environment.local.yaml and fill null / override fields as needed.
+# Passed via: --env-override conf/environment.local.yaml
+#
+# Defaults from environment.yaml: deploy_mode=cluster; first-trial executors 10×4×16g
+# (plan §8.1 — 6 DN / YARN 221184 MB / 67 vCores). Finalize after Pilot S trial on node
+# (CP10 B); fill the calibration checklist in docs/Запуск на Hadoop кластере.md §12.
+# Narrow pilot experiments: conf/pilot-s.yaml + scripts/run-pilot-s.sh.
 environment:
-  versions:
-    orc_writer: null
-    orc_spark: null
-    orc_hive: null
-    orc_generator: null
-    llap: null
-  hdfs:
-    namenode_uri: hdfs://omlt-abyss-sdp-namenode-01.opsmon.sbt:8020
-    default_replication: 3
-    block_size_mib: 128
-    free_space_gib: null
-    short_circuit_read:
-      supported: null
-      enabled: null
-    centralized_cache:
-      supported: null
-    data_locality_verifiable: null
-  yarn:
-    resource_manager: null
-    available_memory_gib: null
-    available_vcores: null
   spark:
-    executor_instances: 4
+    # Switch to client when driver must stay on the submit node (easier results/):
+    # deploy_mode: client
+    deploy_mode: cluster
+    # First-trial values — replace after on-node calibration (§12 checklist):
+    executor_instances: 10
     executor_cores: 4
-    executor_memory_gib: 8
-    enable_hive_support: true
-  hive:
-    llap_available: true
-    llap_daemons: null
-    llap_cache_gib: null
-    materialized_views_supported: null
-    llap_daemons_running_verified: null
+    executor_memory_gib: 16
+    # After trial (examples; leave commented until filled on node):
+    # executor_instances: <N>
+    # executor_cores: <C>
+    # executor_memory_gib: <M>

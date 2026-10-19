@@ -541,7 +541,7 @@ benchmark:
     objective: min p50 over {Q02, Q03, Q07_NARROW}
     sla_gate: success_rate >= 0.95
     tie_break: partitioned > sorted > baseline
-    excluded_candidates: ZSTD (Hive side ORC 1.5.6 codec gap)
+    excluded_candidates: ZSTD (Hive side ORC 1.5.6 codec gap; Spark ZSTD kept; Hive ZSTD deferred until codec support)
   execution_policy:
     layout_lifetime: materialized on prepare, cleaned after stage (except candidates / --keep-layouts)
     idempotency: '{hdfs_root}/state/*.done markers; resume never overwrites existing markers'
@@ -549,16 +549,19 @@ benchmark:
       generate: calibrated by pilot run
       run: 10 x p95 measured
     capacity_check: warn (per-datanode free space, cluster is skewed per report 2026-10-16)
-    scales: S/M/L per dataset.yaml; L materialized one layout at a time
+    scales: S=100/M=500/L=1024 GB per dataset.yaml; L materialized one layout at a time
   runs:
     warmup_per_query: 5
     measured_per_query: 30
+    # Candidate ceiling; actual levels are chosen per scale from cluster capacity (not a fixed MVP set).
+    # Pilot S (CP10) narrow filter + start concurrency 1,5: see conf/pilot-s.yaml / scripts/run-pilot-s.sh.
     concurrency_levels:
     - 1
     - 5
     - 10
     - 25
     - 50
+    concurrency_policy: per_scale_capacity_aware
     cache_states_not_aggregated: true
     record_explain_plans: true
     compare_complete_results: true

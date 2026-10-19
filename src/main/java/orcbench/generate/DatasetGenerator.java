@@ -1,38 +1,34 @@
 package orcbench.generate;
 
-import orcbench.model.Models.*;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.function.FlatMapFunction;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.RowFactory;
-import org.apache.spark.sql.SaveMode;
-import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructField;
-import org.apache.spark.sql.types.StructType;
-import scala.collection.JavaConverters;
+import orcbench.generate.GenerateBackend.EventRowFactory;
+import orcbench.model.Models.ColumnGenerator;
+import orcbench.model.Models.DatasetContract;
+import orcbench.model.Models.GenerateResult;
+import orcbench.model.Models.LoadedConfig;
+import orcbench.model.Models.OrcBaseline;
+import orcbench.model.Models.OrcWriteSettings;
+import orcbench.model.Models.QuerySampleManifest;
+import orcbench.model.Models.ScaleSpec;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.sql.Timestamp;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
-import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.size;
-import static org.apache.spark.sql.functions.to_date;
-
+/**
+ * Checkpoint 4: synthetic RAW_ARRAY_BASE generation from {@code schema.orc.txt}
+ * + {@code dataset.yaml}. Local acceptance uses dry-run / {@link FakeGenerateBackend};
+ * live HDFS writes go through {@link SparkOrcGenerateBackend} on a cluster node only.
+ */
 public final class DatasetGenerator {
-    private static final long APPROX_BYTES_PER_ROW = 1200L;
+
+    /** Approximate uncompressed serialized row size for scale→rowCount estimation. */
+    static final long APPROX_BYTES_PER_ROW = 1200L;
 
     private DatasetGenerator() {}
 
@@ -40,342 +36,485 @@ public final class DatasetGenerator {
         return Math.max(1L, (targetLogicalGib * 1024L * 1024L * 1024L) / APPROX_BYTES_PER_ROW);
     }
 
-    public static QuerySampleManifest generate(SparkSession spark, LoadedConfig cfg, String scale, boolean dryRun) throws Exception {
-        DatasetContract ds = cfg.dataset;
-        ScaleSpec scaleSpec = ds.scales.get(scale);
-        if (scaleSpec == null) {
-            throw new IllegalArgumentException("Unknown scale " + scale);
+    /**
+     * High-level entry used by {@link orcbench.Main}.
+     *
+     * @param dryRun   plan only — no backend writes
+     * @param useMock  when true (and not dry-run), use {@link FakeGenerateBackend}
+     *                 (local/CI mock path; never touches HDFS)
+     * @param backend  optional override (unit tests); if null, mock or Spark is chosen
+     */
+    public static GenerateResult generate(
+            LoadedConfig cfg,
+            String scale,
+            boolean dryRun,
+            boolean useMock,
+            GenerateBackend backend) throws Exception {
+        if (cfg == null) {
+            throw new IllegalArgumentException("cfg is required");
         }
-        long rowCount = ds.generation.rowCount != null ? ds.generation.rowCount : estimateRowCount(scaleSpec.targetLogicalGib);
-        String hdfsRoot = cfg.benchmark.benchmark.hdfsRoot;
-        String basePath = hdfsRoot + "/" + scale + "/" + cfg.benchmark.physicalBaseline.id;
-        String refsPath = hdfsRoot + "/" + scale + "/refs";
-        String manifestPath = hdfsRoot + "/" + scale + "/manifest";
+        String scaleKey = scale == null ? "S" : scale.toUpperCase(Locale.ROOT);
+        DatasetContract ds = cfg.dataset;
+        ScaleSpec scaleSpec = ds.scales.get(scaleKey);
+        if (scaleSpec == null) {
+            throw new IllegalArgumentException("Unknown scale " + scaleKey);
+        }
 
-        System.out.println("[generate] scale=" + scale + " targetGiB=" + scaleSpec.targetLogicalGib
-                + " rows≈" + rowCount + " path=" + basePath);
+        long rowCount = ds.generation.rowCount != null
+                ? ds.generation.rowCount
+                : estimateRowCount(scaleSpec.targetLogicalGib);
+        String hdfsRoot = cfg.benchmark.benchmark.hdfsRoot;
+        String baselineId = cfg.benchmark.physicalBaseline.id;
+        String basePath = hdfsRoot + "/" + scaleKey + "/" + baselineId;
+        String refsPath = hdfsRoot + "/" + scaleKey + "/refs";
+        String manifestPath = hdfsRoot + "/" + scaleKey + "/manifest";
+
+        GenerateResult result = new GenerateResult();
+        result.scale = scaleKey;
+        result.targetLogicalGib = scaleSpec.targetLogicalGib;
+        result.estimatedRows = rowCount;
+        result.basePath = basePath;
+        result.refsPath = refsPath;
+        result.manifestPath = manifestPath;
+        result.dryRun = dryRun;
+        result.mocked = useMock && !dryRun;
+
+        System.out.println("[generate] scale=" + scaleKey
+                + " targetGiB=" + scaleSpec.targetLogicalGib
+                + " rows≈" + rowCount
+                + " path=" + basePath
+                + " dryRun=" + dryRun
+                + " mock=" + result.mocked);
 
         if (dryRun) {
-            System.out.println("[generate] dry-run: skip ORC materialization");
-            QuerySampleManifest m = new QuerySampleManifest();
-            m.partitionDates = Collections.singletonList(
-                    Defaults.getOrElse(cfg.queries.querySuite.defaults, "date_value", "2026-01-15"));
-            return m;
+            result.notes.add("dry-run: skip ORC / refs / manifest materialization");
+            QuerySampleManifest stub = stubManifest(cfg, rowCount, basePath, refsPath, manifestPath);
+            result.samples = stub;
+            System.out.println("[generate] dry-run: would write RAW_ARRAY_BASE, refs/, manifest/");
+            return result;
         }
 
-        long seed = ds.generation.seed;
-        String algo = ds.generation.algorithmVersion;
-        long fromMs = Instant.parse(ds.generation.timestampFrom).toEpochMilli();
-        long toMs = Instant.parse(ds.generation.timestampToExclusive).toEpochMilli();
-        int batch = ds.generation.batchRows;
-        List<String> paramKeys = new ArrayList<>(ds.parameters.catalog.keySet());
-        Collections.sort(paramKeys);
+        GenerateBackend sink = backend;
+        if (sink == null) {
+            if (useMock) {
+                sink = new FakeGenerateBackend();
+                result.notes.add("mock backend: in-memory cap, no HDFS");
+            } else {
+                if (!SparkSessionSupport.sparkAvailable()) {
+                    throw new IllegalStateException(
+                            "Spark is not on the classpath. Live --phase generate requires "
+                                    + "spark-submit on a Hadoop cluster node, or use --dry-run / --mock-generate.");
+                }
+                sink = new SparkOrcGenerateBackend(
+                        SparkSessionSupport.create(cfg, "orc-bench-generate"));
+                result.notes.add("live Spark ORC backend (cluster)");
+            }
+        }
 
-        StructType schema = new StructType(new StructField[]{
-                DataTypes.createStructField("userLogin", DataTypes.StringType, false),
-                DataTypes.createStructField("createdAt", DataTypes.TimestampType, false),
-                DataTypes.createStructField("session", DataTypes.StringType, false),
-                DataTypes.createStructField("userNode", DataTypes.StringType, false),
-                DataTypes.createStructField("module", DataTypes.StringType, false),
-                DataTypes.createStructField("name", DataTypes.StringType, false),
-                DataTypes.createStructField("userName", DataTypes.StringType, false),
-                DataTypes.createStructField("metamodelVersion", DataTypes.StringType, false),
-                DataTypes.createStructField("tags", DataTypes.createArrayType(DataTypes.StringType), false),
-                DataTypes.createStructField("paramOldValue", DataTypes.createArrayType(DataTypes.StringType), true),
-                DataTypes.createStructField("paramName", DataTypes.createArrayType(DataTypes.StringType), false),
-                DataTypes.createStructField("paramValue", DataTypes.createArrayType(DataTypes.StringType), false),
-                DataTypes.createStructField("archiveInternalId", DataTypes.StringType, false),
-                DataTypes.createStructField("archiveInsertTime", DataTypes.TimestampType, false),
-                DataTypes.createStructField("__time", DataTypes.TimestampType, false)
-        });
-
-        OrcBaseline orc = cfg.benchmark.physicalBaseline.orc;
-        int numPartitions = Math.max(1, (int) Math.min(2000, rowCount / Math.max(1, batch * 64L)));
-
+        final long seed = ds.generation.seed;
+        final String algo = ds.generation.algorithmVersion;
+        final long fromMs = Instant.parse(ds.generation.timestampFrom).toEpochMilli();
+        final long toMs = Instant.parse(ds.generation.timestampToExclusive).toEpochMilli();
+        final List<String> paramKeys = sortedParamKeys(ds);
         final Map<String, ColumnGenerator> catalog = ds.parameters.catalog;
         final Map<String, Map<String, Object>> jsonTemplates = ds.jsonTemplates;
-        final List<String> paramKeysFinal = paramKeys;
-        final long seedF = seed;
-        final String algoF = algo;
-        final long fromMsF = fromMs;
-        final long toMsF = toMs;
 
-        // Spark Java exposes range().javaRDD() as JavaRDD<Long>
-        JavaRDD<Row> rdd = spark.range(0L, rowCount).repartition(numPartitions).javaRDD()
-                .mapPartitions(new FlatMapFunction<Iterator<Long>, Row>() {
-                    @Override
-                    public Iterator<Row> call(Iterator<Long> iter) {
-                        List<Row> out = new ArrayList<>();
-                        while (iter.hasNext()) {
-                            long rowId = iter.next();
-                            out.add(buildEventRow(rowId, seedF, algoF, fromMsF, toMsF, paramKeysFinal, catalog, jsonTemplates));
-                        }
-                        return out.iterator();
-                    }
-                });
+        EventRowFactory factory = new EventRowFactory() {
+            @Override
+            public EventRow create(long rowId) {
+                return buildEventRow(rowId, seed, algo, fromMs, toMs, paramKeys, catalog, jsonTemplates);
+            }
+        };
 
-        Dataset<Row> df = spark.createDataFrame(rdd, schema);
-        org.apache.spark.sql.DataFrameWriter<Row> writer = df.write().mode(SaveMode.Overwrite)
-                .option("compression", orc.compression.toLowerCase())
-                .option("orc.stripe.size", Long.toString(orc.stripeSizeMib * 1024L * 1024L))
-                .option("orc.create.index", Boolean.toString(orc.createIndex))
-                .option("orc.row.index.stride", Integer.toString(orc.rowIndexStride));
-        if (!orc.bloomColumns.isEmpty()) {
-            writer = writer
-                    .option("orc.bloom.filter.columns", String.join(",", orc.bloomColumns))
-                    .option("orc.bloom.filter.fpp", Double.toString(orc.bloomFpp));
+        OrcWriteSettings orc = toWriteSettings(cfg.benchmark.physicalBaseline.orc);
+        int batch = Math.max(1, ds.generation.batchRows);
+        int parallelism = Math.max(1, (int) Math.min(2000L, rowCount / Math.max(1L, batch * 64L)));
+
+        sink.writeRawArray(basePath, rowCount, parallelism, factory, orc);
+        sink.writeReferences(refsPath, ds.referenceDatasets, seed, algo);
+
+        QuerySampleManifest samples = buildQuerySamplesFromSynth(
+                factory, ds, cfg, rowCount, basePath, refsPath, manifestPath);
+        sink.writeManifest(manifestPath, samples);
+
+        validateSample(factory, ds, Math.min(rowCount, 64L));
+        if (ds.validation.checkRowCount && !(sink instanceof FakeGenerateBackend)) {
+            long observed = sink.countRows(basePath);
+            if (observed >= 0 && observed != rowCount) {
+                String msg = "row count mismatch: expected=" + rowCount + " actual=" + observed;
+                if (ds.validation.failOnViolation) {
+                    throw new IllegalStateException(msg);
+                }
+                result.notes.add("WARN " + msg);
+            }
+        } else if (sink instanceof FakeGenerateBackend) {
+            FakeGenerateBackend fake = (FakeGenerateBackend) sink;
+            result.notes.add("mock wrote " + fake.events.size()
+                    + " of requested " + fake.requestedRowCount + " rows");
         }
-        writer.format("orc").save(basePath);
-        System.out.println("[generate] wrote RAW_ARRAY_BASE to " + basePath);
 
-        writeReferenceTables(spark, ds, refsPath);
-        QuerySampleManifest manifest = buildQuerySamples(spark, basePath, ds, cfg);
-        writeManifest(spark, manifest, manifestPath);
-        validate(spark, basePath, ds, rowCount);
-        return manifest;
+        result.samples = samples;
+        System.out.println("[generate] OK scale=" + scaleKey + " rows≈" + rowCount);
+        return result;
     }
 
-    private static final class Defaults {
-        static String getOrElse(Map<String, String> m, String k, String d) {
-            String v = m.get(k);
-            return v == null ? d : v;
-        }
+    /** Convenience: dry-run or mock without injecting a backend. */
+    public static GenerateResult generate(LoadedConfig cfg, String scale, boolean dryRun, boolean useMock)
+            throws Exception {
+        return generate(cfg, scale, dryRun, useMock, null);
     }
 
-    static Row buildEventRow(
-            long rowId, long seed, String algo, long fromMs, long toMs,
-            List<String> paramKeys, Map<String, ColumnGenerator> catalog,
+    public static EventRow buildEventRow(
+            long rowId,
+            long seed,
+            String algo,
+            long fromMs,
+            long toMs,
+            List<String> paramKeys,
+            Map<String, ColumnGenerator> catalog,
             Map<String, Map<String, Object>> jsonTemplates) {
         String userLogin = SynthGenerators.prefixedId(seed, rowId, "userLogin", algo, "userLogin", 1_000_000L);
         long createdAtMs = SynthGenerators.timestampUniform(seed, rowId, "createdAt", algo, fromMs, toMs);
-        Timestamp createdAt = new Timestamp(createdAtMs);
         String session = SynthGenerators.prefixedId(seed, rowId, "session", algo, "copy2_", 5_000_000L);
         String userNode = SynthGenerators.dictionary(seed, rowId, "userNode", algo, "userNode", 1000L);
         String module = SynthGenerators.dictionary(seed, rowId, "module", algo, "module_", 500L);
         String name = SynthGenerators.weightedPick(seed, rowId, "name", algo,
-                Arrays.asList("LOGON", "LOGOFF", "ACTION"), Arrays.asList(0.6, 0.25, 0.15));
+                java.util.Arrays.asList("LOGON", "LOGOFF", "ACTION"),
+                java.util.Arrays.asList(0.6, 0.25, 0.15));
         String userName = SynthGenerators.prefixedId(seed, rowId, "userName", algo, "userName", 1_000_000L);
-        String metamodelVersion = SynthGenerators.dictionary(seed, rowId, "metamodelVersion", algo, "metamodelVersion", 1000L);
+        String metamodelVersion = SynthGenerators.dictionary(
+                seed, rowId, "metamodelVersion", algo, "metamodelVersion", 1000L);
 
         List<String> names = new ArrayList<>();
         List<String> values = new ArrayList<>();
+        List<String> oldValues = new ArrayList<>();
         for (String key : paramKeys) {
             names.add(key);
             values.add(generateParam(catalog.get(key), seed, rowId, key, algo, name, session, jsonTemplates));
+            // null_semantics.paramOldValue: array of NULL elements (aligned)
+            oldValues.add(null);
         }
 
         String archiveId = SynthGenerators.uuidDeterministic(seed, rowId, "archiveInternalId", algo);
         int offset = SynthGenerators.bounded(seed, rowId, "archiveInsertTime", algo, 2L) == 0 ? 0 : 120;
-        Timestamp archiveInsert = new Timestamp(createdAtMs + offset * 1000L);
+        long archiveInsertMs = createdAtMs + offset * 1000L;
 
-        return RowFactory.create(
-                userLogin, createdAt, session, userNode, module, name, userName, metamodelVersion,
-                toSeq(Collections.<String>emptyList()),
-                null,
-                toSeq(names),
-                toSeq(values),
-                archiveId, archiveInsert, createdAt
-        );
+        return new EventRow(
+                userLogin, createdAtMs, session, userNode, module, name, userName, metamodelVersion,
+                Collections.<String>emptyList(), // tags: empty array, not null
+                oldValues,
+                names,
+                values,
+                archiveId, archiveInsertMs, createdAtMs);
     }
 
-    private static scala.collection.Seq<String> toSeq(List<String> list) {
-        return JavaConverters.asScalaBufferConverter(list).asScala().toList();
+    /**
+     * Validate alignment / null semantics for a sample of rows (no HDFS).
+     */
+    public static void validateSample(EventRowFactory factory, DatasetContract ds, long sampleRows) {
+        for (long i = 0; i < sampleRows; i++) {
+            EventRow row = factory.create(i);
+            List<String> errors = validateRow(row, ds);
+            if (!errors.isEmpty()) {
+                String msg = "row " + i + ": " + errors;
+                if (ds.validation.failOnViolation) {
+                    throw new IllegalStateException(msg);
+                }
+                System.out.println("[validate] WARN " + msg);
+            }
+        }
     }
 
-    private static String generateParam(ColumnGenerator g, long seed, long rowId, String key, String algo,
-                                        String eventName, String session,
-                                        Map<String, Map<String, Object>> jsonTemplates) {
-        if (g == null) return key + "_missing";
-        switch (g.generator) {
+    /** Returns human-readable violation messages (empty if OK). */
+    public static List<String> validateRow(EventRow row, DatasetContract ds) {
+        List<String> errors = new ArrayList<>();
+        if (row == null) {
+            errors.add("row is null");
+            return errors;
+        }
+        if (ds.validation.checkNullHandling) {
+            if (row.tags == null) {
+                errors.add("tags must be empty array [], not null");
+            }
+            if (row.paramOldValue == null) {
+                errors.add("paramOldValue must be an array (of nulls), not null column");
+            } else {
+                for (int i = 0; i < row.paramOldValue.size(); i++) {
+                    if (row.paramOldValue.get(i) != null) {
+                        errors.add("paramOldValue[" + i + "] must be null element");
+                        break;
+                    }
+                }
+            }
+        }
+        if (ds.validation.checkNameValueAlignment) {
+            if (row.paramName.size() != row.paramValue.size()) {
+                errors.add("paramName/paramValue length mismatch");
+            }
+            if (row.paramName.size() != row.paramOldValue.size()) {
+                errors.add("paramName/paramOldValue length mismatch");
+            }
+        }
+        if (ds.validation.checkDuplicateNames) {
+            java.util.HashSet<String> seen = new java.util.HashSet<>();
+            for (String n : row.paramName) {
+                if (!seen.add(n)) {
+                    errors.add("duplicate paramName: " + n);
+                    break;
+                }
+            }
+        }
+        return errors;
+    }
+
+    /** Canonical SHA-256 over a stable textual projection of the row. */
+    public static String rowHash(EventRow row) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            StringBuilder sb = new StringBuilder(512);
+            sb.append(row.userLogin).append('|')
+                    .append(row.createdAtMs).append('|')
+                    .append(row.session).append('|')
+                    .append(row.userNode).append('|')
+                    .append(row.module).append('|')
+                    .append(row.name).append('|')
+                    .append(row.userName).append('|')
+                    .append(row.metamodelVersion).append('|')
+                    .append(row.tags.size()).append('|')
+                    .append(row.paramName.size()).append('|');
+            for (int i = 0; i < row.paramName.size(); i++) {
+                sb.append(row.paramName.get(i)).append('=')
+                        .append(row.paramValue.get(i)).append(';');
+            }
+            sb.append(row.archiveInternalId).append('|')
+                    .append(row.archiveInsertTimeMs).append('|')
+                    .append(row.timeMs);
+            byte[] dig = md.digest(sb.toString().getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(dig.length * 2);
+            for (byte b : dig) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    static List<String> sortedParamKeys(DatasetContract ds) {
+        List<String> keys = new ArrayList<>(ds.parameters.catalog.keySet());
+        Collections.sort(keys);
+        return keys;
+    }
+
+    static OrcWriteSettings toWriteSettings(OrcBaseline orc) {
+        OrcWriteSettings s = new OrcWriteSettings();
+        if (orc == null) {
+            s.compression = "SNAPPY";
+            s.stripeSizeMib = 64;
+            s.createIndex = true;
+            s.rowIndexStride = 10000;
+            s.bloomFpp = 0.01;
+            return s;
+        }
+        s.compression = orc.compression;
+        s.stripeSizeMib = orc.stripeSizeMib;
+        s.createIndex = orc.createIndex;
+        s.rowIndexStride = orc.rowIndexStride;
+        s.bloomColumns = new ArrayList<>(orc.bloomColumns);
+        s.bloomFpp = orc.bloomFpp;
+        return s;
+    }
+
+    private static String generateParam(
+            ColumnGenerator g,
+            long seed,
+            long rowId,
+            String key,
+            String algo,
+            String eventName,
+            String session,
+            Map<String, Map<String, Object>> jsonTemplates) {
+        if (g == null) {
+            return key + "_missing";
+        }
+        String gen = g.generator == null ? "" : g.generator;
+        switch (gen) {
             case "uuid_deterministic":
                 return SynthGenerators.uuidDeterministic(seed, rowId, key, algo);
             case "copy_column":
-                if ("name".equals(g.source)) return eventName;
-                if ("session".equals(g.source)) return session;
+                if ("name".equals(g.source)) {
+                    return eventName;
+                }
+                if ("session".equals(g.source)) {
+                    return session;
+                }
                 return SynthGenerators.prefixedId(seed, rowId, key, algo, "copy_", 1000L);
             case "prefixed_id":
                 return SynthGenerators.prefixedId(seed, rowId, key, algo,
-                        g.prefix == null ? "" : g.prefix, g.cardinality == null ? 1_000_000L : g.cardinality);
+                        g.prefix == null ? "" : g.prefix,
+                        g.cardinality == null ? 1_000_000L : g.cardinality);
             case "dictionary":
                 return SynthGenerators.dictionary(seed, rowId, key, algo,
-                        g.prefix == null ? "" : g.prefix, g.cardinality == null ? 100L : g.cardinality);
+                        g.prefix == null ? "" : g.prefix,
+                        g.cardinality == null ? 100L : g.cardinality);
             case "documentation_ip_v4":
                 return SynthGenerators.documentationIpv4(seed, rowId, key, algo);
             case "fake_token":
                 return SynthGenerators.fakeToken(seed, rowId, key, algo,
-                        g.prefix == null ? "token_" : g.prefix, g.cardinality == null ? 1_000_000L : g.cardinality);
+                        g.prefix == null ? "token_" : g.prefix,
+                        g.cardinality == null ? 1_000_000L : g.cardinality);
             case "json_template":
                 String templateKey = g.template != null ? g.template : "mobile_sdk_v1";
-                return SynthGenerators.jsonMobileSdk(seed, rowId, algo,
-                        jsonTemplates.getOrDefault(templateKey, Collections.emptyMap()));
+                Map<String, Object> tpl = jsonTemplates == null
+                        ? Collections.<String, Object>emptyMap()
+                        : jsonTemplates.getOrDefault(templateKey, Collections.<String, Object>emptyMap());
+                return SynthGenerators.jsonMobileSdk(seed, rowId, algo, tpl);
             default:
-                return SynthGenerators.prefixedId(seed, rowId, key, algo, g.generator + "_", 1000L);
+                return SynthGenerators.prefixedId(seed, rowId, key, algo, gen + "_", 1000L);
         }
     }
 
-    private static void writeReferenceTables(SparkSession spark, DatasetContract ds, String refsPath) {
-        ReferenceDataset module = ds.referenceDatasets.get("module_dictionary");
-        if (module != null && module.enabled) {
-            int n = module.rowCount == null ? 500 : module.rowCount;
-            List<Row> rows = new ArrayList<>();
-            for (int i = 0; i < n; i++) {
-                String t = i % 3 == 0 ? "A" : (i % 3 == 1 ? "B" : "C");
-                rows.add(RowFactory.create("module_" + i, t));
-            }
-            spark.createDataFrame(rows, new StructType(new StructField[]{
-                    DataTypes.createStructField("id", DataTypes.StringType, false),
-                    DataTypes.createStructField("type", DataTypes.StringType, false)
-            })).write().mode(SaveMode.Overwrite).format("orc").save(refsPath + "/module_dictionary");
+    private static QuerySampleManifest stubManifest(
+            LoadedConfig cfg, long rowCount, String basePath, String refsPath, String manifestPath) {
+        QuerySampleManifest m = new QuerySampleManifest();
+        m.estimatedRows = rowCount;
+        m.basePath = basePath;
+        m.refsPath = refsPath;
+        m.manifestPath = manifestPath;
+        String dateValue = "2026-01-15";
+        if (cfg.queries != null && cfg.queries.querySuite != null
+                && cfg.queries.querySuite.defaults != null
+                && cfg.queries.querySuite.defaults.get("date_value") != null) {
+            dateValue = cfg.queries.querySuite.defaults.get("date_value");
         }
-
-        ReferenceDataset epk = ds.referenceDatasets.get("epk_dictionary");
-        if (epk != null && epk.enabled) {
-            int n = epk.rowCount == null ? 100000 : epk.rowCount;
-            List<Row> rows = new ArrayList<>();
-            for (int i = 0; i < n; i++) {
-                rows.add(RowFactory.create("epk_" + i, i % 2 == 0 ? "A" : "B"));
-            }
-            spark.createDataFrame(rows, new StructType(new StructField[]{
-                    DataTypes.createStructField("id", DataTypes.StringType, false),
-                    DataTypes.createStructField("type", DataTypes.StringType, false)
-            })).write().mode(SaveMode.Overwrite).format("orc").save(refsPath + "/epk_dictionary");
-        }
-
-        ReferenceDataset dates = ds.referenceDatasets.get("partition_dates");
-        if (dates != null && dates.enabled) {
-            List<Row> rows = new ArrayList<>();
-            for (int d = 0; d < 31; d++) {
-                String day = String.format("2026-01-%02d", d + 1);
-                rows.add(RowFactory.create(day, d % 2 == 0 ? "peak" : "offpeak"));
-            }
-            spark.createDataFrame(rows, new StructType(new StructField[]{
-                    DataTypes.createStructField("event_date", DataTypes.StringType, false),
-                    DataTypes.createStructField("category", DataTypes.StringType, false)
-            })).withColumn("event_date", to_date(col("event_date")))
-                    .write().mode(SaveMode.Overwrite).format("orc").save(refsPath + "/partition_dates");
-        }
+        m.partitionDates = Collections.singletonList(dateValue);
+        return m;
     }
 
-    private static QuerySampleManifest buildQuerySamples(SparkSession spark, String basePath, DatasetContract ds, LoadedConfig cfg) {
-        Dataset<Row> df = spark.read().format("orc").load(basePath);
-        int sampleN = ds.querySamples.valuesPerCase;
+    static QuerySampleManifest buildQuerySamplesFromSynth(
+            EventRowFactory factory,
+            DatasetContract ds,
+            LoadedConfig cfg,
+            long rowCount,
+            String basePath,
+            String refsPath,
+            String manifestPath) {
+        int sampleN = Math.max(1, ds.querySamples.valuesPerCase);
+        int need = sampleN * 4;
+        long limit = Math.min(rowCount, Math.max(need, 200L));
+
+        List<String> userLogins = new ArrayList<>();
+        List<String> sessions = new ArrayList<>();
+        List<String> epks = new ArrayList<>();
+        List<String> ips = new ArrayList<>();
+        List<String> channels = new ArrayList<>();
+        List<String> devices = new ArrayList<>();
+
+        for (long i = 0; i < limit; i++) {
+            EventRow row = factory.create(i);
+            if (userLogins.size() < need) {
+                userLogins.add(row.userLogin);
+            }
+            if (sessions.size() < need) {
+                sessions.add(row.session);
+            }
+            for (int p = 0; p < row.paramName.size(); p++) {
+                String k = row.paramName.get(p);
+                String v = row.paramValue.get(p);
+                if ("EPK_ID".equals(k) && epks.size() < need) {
+                    epks.add(v);
+                } else if ("IP_ADDRESS".equals(k) && ips.size() < need) {
+                    ips.add(v);
+                } else if ("CHANNEL_TYPE".equals(k) && channels.size() < need) {
+                    channels.add(v);
+                } else if ("MOBILE_SDK_DATA".equals(k) && devices.size() < need) {
+                    String os = extractJsonField(v, "DeviceSystemName");
+                    if (os != null) {
+                        devices.add(os);
+                    }
+                }
+            }
+        }
+
         QuerySampleManifest manifest = new QuerySampleManifest();
+        manifest.estimatedRows = rowCount;
+        manifest.basePath = basePath;
+        manifest.refsPath = refsPath;
+        manifest.manifestPath = manifestPath;
+        List<String> cases = ds.querySamples.cases.isEmpty()
+                ? java.util.Arrays.asList("present", "absent", "selective", "common")
+                : ds.querySamples.cases;
+        manifest.samples.put("userLogin", bucket(userLogins, cases, sampleN));
+        manifest.samples.put("session", bucket(sessions, cases, sampleN));
+        manifest.samples.put("EPK_ID", bucket(epks, cases, sampleN));
+        manifest.samples.put("SESSION_ID", bucket(sessions, cases, sampleN));
+        manifest.samples.put("IP_ADDRESS", bucket(ips, cases, sampleN));
+        manifest.samples.put("CHANNEL_TYPE", bucket(channels, cases, sampleN));
 
-        List<String> userLogins = takeDistinct(df, "userLogin", sampleN * 4);
-        List<String> sessions = takeDistinct(df, "session", sampleN * 4);
-
-        df.createOrReplaceTempView("events_sample");
-        List<String> epks = spark.sql(
-                "SELECT DISTINCT element_at(paramValue, array_position(paramName, 'EPK_ID')) AS epk "
-                        + "FROM events_sample WHERE array_contains(paramName, 'EPK_ID') LIMIT 200")
-                .javaRDD().map(r -> r.getString(0)).filter(s -> s != null).collect();
-        List<String> ips = spark.sql(
-                "SELECT DISTINCT element_at(paramValue, array_position(paramName, 'IP_ADDRESS')) AS ip "
-                        + "FROM events_sample WHERE array_contains(paramName, 'IP_ADDRESS') LIMIT 200")
-                .javaRDD().map(r -> r.getString(0)).filter(s -> s != null).collect();
-        List<String> channels = spark.sql(
-                "SELECT DISTINCT element_at(paramValue, array_position(paramName, 'CHANNEL_TYPE')) AS ch "
-                        + "FROM events_sample WHERE array_contains(paramName, 'CHANNEL_TYPE') LIMIT 200")
-                .javaRDD().map(r -> r.getString(0)).filter(s -> s != null).collect();
-
-        manifest.samples.put("userLogin", bucket(userLogins, ds.querySamples.cases, sampleN));
-        manifest.samples.put("session", bucket(sessions, ds.querySamples.cases, sampleN));
-        manifest.samples.put("EPK_ID", bucket(epks, ds.querySamples.cases, sampleN));
-        manifest.samples.put("SESSION_ID", bucket(sessions, ds.querySamples.cases, sampleN));
-        manifest.samples.put("IP_ADDRESS", bucket(ips, ds.querySamples.cases, sampleN));
-        manifest.samples.put("CHANNEL_TYPE", bucket(channels, ds.querySamples.cases, sampleN));
-        Map<String, List<String>> device = new HashMap<>();
-        device.put("present", Arrays.asList("iOS", "Android"));
+        Map<String, List<String>> device = new LinkedHashMap<>();
+        device.put("present", java.util.Arrays.asList("iOS", "Android"));
         device.put("absent", Collections.singletonList("UNKNOWN_OS"));
         device.put("selective", Collections.singletonList("iOS"));
         device.put("common", Collections.singletonList("Android"));
         manifest.samples.put("DeviceSystemName", device);
-        String dateValue = cfg.queries.querySuite.defaults.getOrDefault("date_value", "2026-01-15");
+
+        String dateValue = "2026-01-15";
+        if (cfg.queries != null && cfg.queries.querySuite != null
+                && cfg.queries.querySuite.defaults != null
+                && cfg.queries.querySuite.defaults.get("date_value") != null) {
+            dateValue = cfg.queries.querySuite.defaults.get("date_value");
+        }
         manifest.partitionDates = Collections.singletonList(dateValue);
         return manifest;
     }
 
-    private static List<String> takeDistinct(Dataset<Row> df, String colName, int n) {
-        return df.select(colName).distinct().limit(n).javaRDD().map(r -> r.getString(0)).collect();
-    }
-
     private static Map<String, List<String>> bucket(List<String> values, List<String> cases, int sampleN) {
-        Map<String, List<String>> out = new HashMap<>();
+        Map<String, List<String>> out = new LinkedHashMap<>();
         List<String> present = values.subList(0, Math.min(sampleN, values.size()));
         List<String> selective = values.subList(Math.min(sampleN, values.size()),
                 Math.min(sampleN * 2, values.size()));
         List<String> common = values.subList(0, Math.min(3, values.size()));
         List<String> absent = new ArrayList<>();
-        for (int i = 0; i < sampleN; i++) absent.add("ABSENT_" + i + "_NOT_IN_DATA");
+        for (int i = 0; i < sampleN; i++) {
+            absent.add("ABSENT_" + i + "_NOT_IN_DATA");
+        }
         for (String c : cases) {
             switch (c) {
-                case "present": out.put(c, new ArrayList<>(present)); break;
-                case "absent": out.put(c, absent); break;
-                case "selective":
-                    out.put(c, selective.isEmpty() ? new ArrayList<>(present.subList(0, Math.min(1, present.size()))) : new ArrayList<>(selective));
+                case "present":
+                    out.put(c, new ArrayList<>(present));
                     break;
-                case "common": out.put(c, new ArrayList<>(common)); break;
-                default: out.put(c, new ArrayList<>(present));
+                case "absent":
+                    out.put(c, absent);
+                    break;
+                case "selective":
+                    out.put(c, selective.isEmpty()
+                            ? new ArrayList<>(present.subList(0, Math.min(1, present.size())))
+                            : new ArrayList<>(selective));
+                    break;
+                case "common":
+                    out.put(c, new ArrayList<>(common));
+                    break;
+                default:
+                    out.put(c, new ArrayList<>(present));
             }
         }
         return out;
     }
 
-    private static void writeManifest(SparkSession spark, QuerySampleManifest manifest, String path) throws Exception {
-        List<Row> rows = new ArrayList<>();
-        for (Map.Entry<String, Map<String, List<String>>> e : manifest.samples.entrySet()) {
-            for (Map.Entry<String, List<String>> c : e.getValue().entrySet()) {
-                for (String v : c.getValue()) {
-                    rows.add(RowFactory.create(e.getKey(), c.getKey(), v));
-                }
-            }
+    private static String extractJsonField(String json, String field) {
+        if (json == null) {
+            return null;
         }
-        spark.createDataFrame(rows, new StructType(new StructField[]{
-                DataTypes.createStructField("key", DataTypes.StringType, false),
-                DataTypes.createStructField("case_name", DataTypes.StringType, false),
-                DataTypes.createStructField("value", DataTypes.StringType, false)
-        })).coalesce(1).write().mode(SaveMode.Overwrite).option("header", "true").csv(path + "/query_samples");
-
-        Path localDir = Paths.get("generated", "manifest");
-        Files.createDirectories(localDir);
-        StringBuilder sb = new StringBuilder("{\n");
-        for (Map.Entry<String, Map<String, List<String>>> e : manifest.samples.entrySet()) {
-            sb.append("  \"").append(e.getKey()).append("\": {\n");
-            for (Map.Entry<String, List<String>> c : e.getValue().entrySet()) {
-                sb.append("    \"").append(c.getKey()).append("\": [");
-                for (int i = 0; i < c.getValue().size(); i++) {
-                    if (i > 0) sb.append(',');
-                    sb.append('"').append(c.getValue().get(i).replace("\"", "\\\"")).append('"');
-                }
-                sb.append("],\n");
-            }
-            sb.append("  },\n");
+        String needle = "\"" + field + "\":\"";
+        int i = json.indexOf(needle);
+        if (i < 0) {
+            return null;
         }
-        sb.append("  \"partitionDates\": [");
-        for (int i = 0; i < manifest.partitionDates.size(); i++) {
-            if (i > 0) sb.append(',');
-            sb.append('"').append(manifest.partitionDates.get(i)).append('"');
+        int start = i + needle.length();
+        int end = json.indexOf('"', start);
+        if (end < 0) {
+            return null;
         }
-        sb.append("]\n}\n");
-        Files.write(localDir.resolve("query_samples.json"), sb.toString().getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static void validate(SparkSession spark, String basePath, DatasetContract ds, long expectedRows) {
-        Dataset<Row> df = spark.read().format("orc").load(basePath);
-        long count = df.count();
-        if (ds.validation.checkRowCount && count != expectedRows) {
-            String msg = "row count mismatch: expected=" + expectedRows + " actual=" + count;
-            if (ds.validation.failOnViolation) throw new IllegalStateException(msg);
-            System.out.println("[validate] WARN " + msg);
-        }
-        if (ds.validation.checkNameValueAlignment) {
-            long bad = df.filter(size(col("paramName")).notEqual(size(col("paramValue")))).limit(1).count();
-            if (bad > 0) {
-                String msg = "paramName/paramValue length mismatch";
-                if (ds.validation.failOnViolation) throw new IllegalStateException(msg);
-                System.out.println("[validate] WARN " + msg);
-            }
-        }
-        System.out.println("[validate] OK rows=" + count);
+        return json.substring(start, end);
     }
 }

@@ -33,9 +33,9 @@ dataset:
     S:
       target_logical_gib: 100
     M:
-      target_logical_gib: 1024
+      target_logical_gib: 500
     L:
-      target_logical_gib: 5120
+      target_logical_gib: 1024
   generation:
     seed: 123456789
     algorithm_version: audit_synth_v1

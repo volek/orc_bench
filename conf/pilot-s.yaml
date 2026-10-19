@@ -1,0 +1,60 @@
+# Checkpoint 10 — Pilot S (scale S = 100 GB) narrow experiment set.
+# Contract companion to benchmark.yaml / environment.yaml (not loaded by ConfigLoader).
+# Consumed by scripts/run-pilot-s.sh and docs/Запуск на Hadoop кластере.md §6.2.
+#
+# Full matrix stays in benchmark.yaml; this file is the OVAT pilot filter for first
+# trial + sizing/concurrency calibration (§8.1–§8.2 of the development plan).
+# Live generate/materialize/run — only on a cluster node (plan §7.0).
+
+pilot_s:
+  id: pilot_s_cp10
+  scale: S
+  scale_gib: 100
+  deploy_mode: cluster
+  engines_spark: spark
+
+  # First-trial executor sizing (plan §8.1). Headroom vs YARN Effective_Max_Capacity
+  # 221184 MB (~216 GiB) / 67 vCores on 6 datanodes. Finalize after on-node trial.
+  executor_start:
+    instances: 10
+    cores: 4
+    memory_gib: 16
+
+  yarn_capacity_ref:
+    datanodes: 6
+    effective_max_memory_mb: 221184
+    effective_max_memory_gib: 216
+    effective_max_vcores: 67
+
+  # Pilot start levels (§8.2). Candidates ceiling remains benchmark.runs.concurrency_levels.
+  # Capacity-aware expander with 10×4×16g on 216/67 typically selects [1, 5].
+  # Expand only after a stable trial; calibrate M (500 GB) / L (1024 GB) separately.
+  concurrency_start_levels:
+  - 1
+  - 5
+
+  # Machine-readable CSV for scripts (keep in sync with lists below).
+  experiments_materialize_csv: MINMAX_SORT,BLOOM_USER,PARTITIONING
+  experiments_run_csv: ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION
+
+  experiments:
+    # Rewrite layouts that must be written before run.
+    materialize:
+    - MINMAX_SORT
+    - BLOOM_USER
+    - PARTITIONING
+    # Full pilot filter for --phase run (physical + SPARK_VECTORIZATION).
+    run:
+    - ORC_COLUMN_PRUNING
+    - ORC_PUSHDOWN
+    - MINMAX_SORT
+    - BLOOM_USER
+    - PARTITIONING
+    - SPARK_VECTORIZATION
+
+  notes:
+  - ORC_COLUMN_PRUNING / ORC_PUSHDOWN use RAW_ARRAY_BASE (query_only / reader_settings).
+  - SPARK_VECTORIZATION is engine-only (no extra layout).
+  - Spark ZSTD kept in full COMPRESSION matrix; not required for this pilot slice.
+  - Hive ZSTD deferred (ORC 1.5.6 codec gap); Hive engines out of pilot-S Spark slice.
+  - Expand matrix / scale M|L only after reviewing results/<runId>/ with the user.

@@ -12,3 +12,21 @@ out/
 results/
 generated/
 conf/environment.local.yaml
+
+# Kerberos / secrets — never commit real keytabs or local credentials
+*.keytab
+*.ktab
+**/keytab/
+**/keytabs/
+*.pem
+*.p12
+*.jks
+*.keystore
+*.secret
+credentials.json
+**/credentials/
+.env
+.env.*
+
+# Packaged cluster bundles (rebuild via scripts/package-for-cluster.sh)
+dist/
