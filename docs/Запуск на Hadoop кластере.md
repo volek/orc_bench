@@ -165,7 +165,7 @@ cp conf/environment.local.yaml.example conf/environment.local.yaml
 
 Передача: `--env-override conf/environment.local.yaml`.
 
-В cluster mode `run-benchmark.sh` и `spark-submit-orc-bench.sh` сами добавляют `spark-submit --files` для этого файла и для `--metrics-jsonl`, а в приложение передают только имя файла. Driver в контейнере AM открывает его из своей рабочей директории. Прямой `spark-submit` без `--files` файл в контейнер не кладёт — см. §7.3. Фазы, которые сами не создают `SparkSession` (preflight, report, dry-run), при `SPARK_YARN_MODE=true` открывают сессию на время процесса: без неё YARN завершает AM с `User did not initialize spark context`.
+В cluster mode `run-benchmark.sh` и `spark-submit-orc-bench.sh` сами добавляют `spark-submit --files` для этого файла и для `--metrics-jsonl`, а в приложение передают только имя файла. Driver в контейнере AM открывает его из своей рабочей директории. Прямой `spark-submit` без `--files` файл в контейнер не кладёт — см. §7.3. Фазы, которые сами не создают `SparkSession` (preflight, report, dry-run), открывают её, когда ApplicationMaster уже выставил `spark.yarn.app.id` (cluster mode). Без сессии YARN завершает AM с `User did not initialize spark context`. В stdout драйвера есть строка `driver spark.master=... yarnAppId=...`.
 
 ---
 
@@ -429,7 +429,7 @@ hdfs dfs -du -h /orc_test/S
 | Hive JDBC fail | ZK URL из `environment.yaml`; сеть с ноды; ticket ещё валиден |
 | Много `skipped` LLAP | `llap_daemons_running_verified` / live probe; ожидаемо до зелёного probe |
 | Нет `results/` на submit-ноде | Ожидаемо для cluster mode — см. §7.4; смотреть `yarn logs -applicationId <appId>` |
-| `User did not initialize spark context` / exit 13 | Драйвер завершился без SparkContext. Нужен jar, в котором preflight открывает сессию при `SPARK_YARN_MODE=true` |
+| `User did not initialize spark context` / exit 13 | Драйвер завершился без SparkContext. В `yarn logs` должна быть строка `yarnAppId=application_...` и следом `SparkSession opened`. Если `yarnAppId=null`, на узле старый jar |
 | `client deploy mode is disabled` | Уберите `spark.deploy_mode: client` из `environment.local.yaml`; не передавайте `--deploy-mode client` |
 | `spark-submit` / live Kerberos на laptop | Не запускать live с этого host; локально только `--dry-run-submit` / packaging |
 | Phase not implemented | Все фазы CLI (A) готовы CP1–CP8; live на ноде — CP3–CP9 (B) |

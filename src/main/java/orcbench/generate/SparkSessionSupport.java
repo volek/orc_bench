@@ -36,9 +36,15 @@ public final class SparkSessionSupport {
     /**
      * YARN cluster mode fails the application if the driver returns without a SparkContext
      * ({@code User did not initialize spark context}). Phases that only read YAML (preflight,
-     * report, dry-run) still have to open a session while {@code SPARK_YARN_MODE=true}.
+     * report, dry-run) still have to open a session while the process is the cluster driver.
+     * Spark 3.2 ApplicationMaster sets {@code spark.yarn.app.id} before calling user main;
+     * it does not set {@code SPARK_YARN_MODE}.
      */
     public static void openYarnDriver(LoadedConfig cfg) {
+        System.out.println("[orc-bench] driver spark.master=" + System.getProperty("spark.master")
+                + " deployMode=" + System.getProperty("spark.submit.deployMode")
+                + " yarnAppId=" + System.getProperty("spark.yarn.app.id")
+                + " SPARK_YARN_MODE=" + System.getenv("SPARK_YARN_MODE"));
         if (!runningInsideYarnCluster() || held != null) {
             return;
         }
@@ -60,7 +66,12 @@ public final class SparkSessionSupport {
     }
 
     static boolean runningInsideYarnCluster() {
-        return "true".equalsIgnoreCase(System.getenv("SPARK_YARN_MODE"));
+        if ("true".equalsIgnoreCase(System.getenv("SPARK_YARN_MODE"))) {
+            return true;
+        }
+        // Set by ApplicationMaster.run() only in cluster mode, before the user thread starts.
+        String appId = System.getProperty("spark.yarn.app.id");
+        return appId != null && !appId.trim().isEmpty();
     }
 
     private static SparkSession held;
