@@ -5,6 +5,7 @@ import orcbench.config.ConfigLoader;
 import orcbench.engine.hive.HiveJdbcRunner;
 import orcbench.engine.spark.SparkQueryRunner;
 import orcbench.generate.DatasetGenerator;
+import orcbench.generate.SparkSessionSupport;
 import orcbench.layout.ExperimentExpander;
 import orcbench.layout.LayoutMaterializer;
 import orcbench.model.Models.CapabilityReport;
@@ -76,6 +77,15 @@ public final class Main {
                 + " spark.deployMode=" + cfg.environment.environment.spark.deployMode
                 + " bestOrc.objective=" + cfg.benchmark.bestOrcRule.objectiveQueries);
 
+        try {
+            SparkSessionSupport.openYarnDriver(cfg);
+            runPhases(cli, cfg);
+        } finally {
+            SparkSessionSupport.closeYarnDriver();
+        }
+    }
+
+    private static void runPhases(CliOptions.CliArgs cli, LoadedConfig cfg) throws Exception {
         List<String> phases = "all".equals(cli.phase)
                 ? Arrays.asList("preflight", "generate", "materialize", "run", "final")
                 : Arrays.asList(cli.phase);

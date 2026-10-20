@@ -3,9 +3,10 @@
 # fetch-results.sh — упаковка results/<runId> в .tgz для scp с узла
 #
 # Назначение:
-#   На узле submit после прогона (удобно при deploy_mode=client) собирает
-#   каталог прогона в архив. При deploy_mode=cluster локальный results/ может
-#   быть пуст — см. docs/Запуск на Hadoop кластере.md.
+#   На узле submit после прогона собирает каталог прогона в архив, если
+#   results/<runId> есть локально. В cluster mode файлы --results-dir пишет
+#   драйвер внутри контейнера AM; на submit-ноде каталог часто пуст.
+#   Текст отчёта — в yarn logs (runbook §7.4).
 #
 # Параметры:
 #   -h, --help            показать эту справку
@@ -47,7 +48,7 @@ LIST=0
 LATEST=0
 
 usage() {
-  sed -n '2,35p' "$0" | sed 's/^# \?//'
+  sed -n '2,36p' "$0" | sed 's/^# \?//'
   exit 2
 }
 
@@ -101,8 +102,8 @@ fi
 SRC="$RESULTS_DIR/$RUN_ID"
 if [[ ! -d "$SRC" ]]; then
   echo "ERROR: not a directory: $SRC" >&2
-  echo "  Tip: deploy_mode=cluster may leave results on the AM — use client mode" >&2
-  echo "  for local results/, or collect yarn logs (runbook §7.4)." >&2
+  echo "  Tip: cluster mode writes results/ inside the AM container, not on the submit host." >&2
+  echo "  Driver stdout: yarn logs -applicationId <appId> (runbook §7.4)." >&2
   exit 1
 fi
 

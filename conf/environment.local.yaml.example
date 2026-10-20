@@ -1,14 +1,13 @@
 # Copy to environment.local.yaml and fill null / override fields as needed.
 # Passed via: --env-override conf/environment.local.yaml
 #
-# Defaults from environment.yaml: deploy_mode=cluster; first-trial executors 10×4×16g
+# Defaults from environment.yaml: deploy_mode=cluster only; first-trial executors 10×4×16g
 # (plan §8.1 — 6 DN / YARN 221184 MB / 67 vCores). Finalize after Pilot S trial on node
 # (CP10 B); fill the calibration checklist in docs/Запуск на Hadoop кластере.md §12.
 # Narrow pilot experiments: conf/pilot-s.yaml + scripts/run-pilot-s.sh.
 environment:
   spark:
-    # Switch to client when driver must stay on the submit node (easier results/):
-    # deploy_mode: client
+    # cluster only — scripts reject deploy_mode=client
     deploy_mode: cluster
     # First-trial values — replace after on-node calibration (§12 checklist):
     executor_instances: 10

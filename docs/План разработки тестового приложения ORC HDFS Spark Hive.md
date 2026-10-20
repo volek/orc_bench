@@ -131,7 +131,7 @@
 - Kerberos: `pvm-omltp-sdp@OPSMON.SBT`, keytab `~/keytab/pvm-omltp-sdp.keytab`.
 - HDFS: `hdfs://sdp-dzo-lt-omlt`, replication **2**, block **128 MiB**, work/root **`/orc_test`**.
 - YARN: queue **`default`**, RM HA (namenode-01/02); Effective_Max_Capacity (ориентир первого запуска): **memory 221184 MB (~216 GiB), vCores 67**; **6 datanodes**.
-- Spark: `master: yarn`, **`deploy_mode: cluster` по умолчанию**, с возможностью переключения на `client` при необходимости (override / флаг submit).
+- Spark: `master: yarn`, **`deploy_mode: cluster` только**. Скрипты запуска отклоняют `client`.
 - Executor sizing: стартовые значения для первого пробного запуска — см. §8.1; **финальный sizing — после первого trial run**.
 - Hive JDBC: ZooKeeper discovery → HS2; LLAP app `llap0`, mode `only`; MV не поддерживаются.
 - Short-circuit: supported+enabled, **не mutable** runner’ом (подтверждено).
@@ -161,7 +161,7 @@
 
 ```text
 --config <dir>          # по умолчанию conf/; на кластере — копия configs_final или symlink
---env-override <yaml>   # overlay для null-полей environment (в т.ч. deploy_mode=client, executor_*)
+--env-override <yaml>   # overlay для null-полей environment (executor_* и прочие факты ноды)
 --scale S|M|L           # 100 / 500 / 1024 GB
 --phase preflight|generate|materialize|run|final|all
 --experiments <id,...>
@@ -410,7 +410,7 @@ Main-Class: orcbench.Main
 **(A) Local — критерии приёмки на этом host**
 
 - [x] Готовые/обновлённые скрипты в `scripts/` (обёртки spark-submit, preflight, kinit helper, packaging, fetch-results) + runbook [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md).
-- [x] `deploy_mode=cluster` по умолчанию (из `environment.yaml` / hardcoded fallback); переключение на `client` через `--deploy-mode client` / `environment.local.yaml`.
+- [x] `deploy_mode=cluster` только. Скрипты запуска отклоняют `--deploy-mode client` и `spark.deploy_mode: client`.
 - [x] Документация и скрипты **не** предполагают live cluster-side с этого host; локальный smoke: `--dry-run-submit`, `package-for-cluster.sh`.
 - [x] Packaging: `dist/orc-bench-cluster-bundle.tgz` (jar + conf + scripts + `NODE_README.txt`; optional `--with-runbook`).
 
@@ -457,7 +457,7 @@ Main-Class: orcbench.Main
 ```bash
 spark-submit \
   --master yarn \
-  --deploy-mode cluster \          # по умолчанию; при необходимости: client
+  --deploy-mode cluster \
   --queue default \
   --num-executors 10 \
   --executor-cores 4 \
@@ -471,7 +471,7 @@ spark-submit \
 ```
 
 5. Driver/AM оркестрирует фазы; Spark-jobs — на YARN; Hive — через JDBC к HS2 (ZooKeeper).
-6. Результаты — локально в `--results-dir` (в cluster mode учесть доставку логов/артефактов на ноду запуска или `--results-dir` на доступном FS); данные — под `/orc_test/<scale>/…`.
+6. Результаты драйвера — в `yarn logs` (§7.4 runbook). Файлы `--results-dir` остаются на узле AM. Данные — под `/orc_test/<scale>/…`.
 
 Рекомендуемый первый день на кластере (пути из configs_final):
 
@@ -537,7 +537,7 @@ preflight (dry-run) → preflight → generate(S=100 GB) → materialize (узк
 
 1. **Источник истины / HDFS root / YARN queue:** план следует **`orc_hdfs_spark_hive_configs_final`** (`/orc_test`, queue `default`). Операционный runbook — [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md) (единый документ запуска / CLI / отчётов).
 2. **Масштабы датасета:** во всех контрактных документах — **S=100 / M=500 / L=1024 GB** (логические GiB по `dataset.yaml`).
-3. **`deploy_mode`:** по умолчанию **`cluster`**; переключение на **`client`** допускается при необходимости (override / submit).
+3. **`deploy_mode`:** только **`cluster`**. Переключение на **`client`** отключено в скриптах запуска.
 4. **Executor sizing:** финализация **после первого trial run**. Для первого запуска — рекомендации §8.1 на базе 6 datanodes и Effective_Max_Capacity memory **221184** / vCores **67**.
 5. **LLAP:** остаётся в плане (`HIVE_LLAP*`); readiness **подтверждается на реальном кластере** и при необходимости корректируется (observational/skipped до зелёного probe).
 6. **Short-circuit / HDFS centralized cache / MV:** подтверждено — `SHORT_CIRCUIT` не mutable runner’ом (observational); `HDFS_CACHE.centralized` и `HIVE_MATERIALIZED_VIEW` — **ожидаемые skips**, приемлемо для покрытия §1.
@@ -562,7 +562,7 @@ preflight (dry-run) → preflight → generate(S=100 GB) → materialize (узк
 ## 11. Краткий чеклист готовности к старту разработки
 
 - [x] Пользователь утвердил этот план (Checkpoint 0), включая §7.0 (dev host ≠ cluster).
-- [x] Критичные решения §10.1 приняты (источник истины, масштабы S/M/L=100/500/1024 GB, deploy_mode=cluster с переключением на client, greenfield, skips, ZSTD, concurrency-подход).
+- [x] Критичные решения §10.1 приняты (источник истины, масштабы S/M/L=100/500/1024 GB, deploy_mode=cluster без client, greenfield, skips, ZSTD, concurrency-подход).
 - [x] Есть явная команда: «начинай Checkpoint 1» (или эквивалент) — выполнено.
 - [x] Checkpoint 1 **(A)** каркас собран и проверен локально (`./gradlew test shadowJar`).
 - [x] Checkpoint 2 **(A)**: typed models + ExperimentExpander + capacity-aware concurrency + dry-run plan.

@@ -49,7 +49,7 @@ environment:
     available_vcores: 67
   spark:
     master: yarn
-    # Default cluster; override to client in environment.local.yaml when needed.
+    # Submit is cluster-only. Scripts reject deploy_mode=client.
     deploy_mode: cluster
     # First-trial sizing (finalize after first trial run). Headroom vs Effective_Max_Capacity 221184 MB / 67 vCores.
     executor_instances: 10

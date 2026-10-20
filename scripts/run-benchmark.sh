@@ -15,7 +15,7 @@
 #   -h, --help              показать эту справку
 #   --jar PATH              fat-jar (иначе ORC_BENCH_JAR или путь по умолчанию)
 #   --master URL            Spark master (иначе ORC_BENCH_MASTER / YAML)
-#   --deploy-mode MODE      cluster|client (ORC_BENCH_DEPLOY_MODE / YAML)
+#   --deploy-mode MODE      только cluster (client отключён; ORC_BENCH_DEPLOY_MODE / YAML)
 #   --queue NAME            YARN-очередь (ORC_BENCH_QUEUE / YAML)
 #   --num-executors N       число executor'ов (ORC_BENCH_NUM_EXECUTORS / YAML)
 #   --executor-cores N      ядра на executor (ORC_BENCH_EXECUTOR_CORES / YAML)
@@ -24,10 +24,10 @@
 #   --keytab PATH           путь к keytab (ORC_BENCH_KEYTAB / YAML)
 #   --dry-run-submit        только напечатать строку spark-submit и выйти 0
 #
-# Cluster mode:
+# Cluster mode (единственный):
 #   Локальные --env-override и --metrics-jsonl уходят в spark-submit --files,
 #   в Main передаётся basename (файл появляется в cwd контейнера AM).
-#   Client mode пути не меняет.
+#   --deploy-mode client и spark.deploy_mode: client в YAML завершают скрипт с ошибкой.
 #
 # Переменные окружения (те же смыслы, что флаги выше):
 #   ORC_BENCH_JAR, ORC_BENCH_MASTER, ORC_BENCH_DEPLOY_MODE, ORC_BENCH_QUEUE,
@@ -210,9 +210,14 @@ if [[ ! -f "$JAR" ]]; then
 fi
 
 case "$DEPLOY_MODE" in
-  cluster|client) ;;
+  cluster) ;;
+  client)
+    echo "ERROR: client deploy mode is disabled." >&2
+    echo "  Submit is cluster-only. Remove spark.deploy_mode: client from" >&2
+    echo "  environment.local.yaml and do not pass --deploy-mode client." >&2
+    exit 2 ;;
   *)
-    echo "ERROR: --deploy-mode must be cluster or client (got: $DEPLOY_MODE)" >&2
+    echo "ERROR: --deploy-mode must be cluster (got: $DEPLOY_MODE)" >&2
     exit 2 ;;
 esac
 

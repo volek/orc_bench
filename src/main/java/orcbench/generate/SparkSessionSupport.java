@@ -32,4 +32,36 @@ public final class SparkSessionSupport {
             return false;
         }
     }
+
+    /**
+     * YARN cluster mode fails the application if the driver returns without a SparkContext
+     * ({@code User did not initialize spark context}). Phases that only read YAML (preflight,
+     * report, dry-run) still have to open a session while {@code SPARK_YARN_MODE=true}.
+     */
+    public static void openYarnDriver(LoadedConfig cfg) {
+        if (!runningInsideYarnCluster() || held != null) {
+            return;
+        }
+        held = create(cfg, "orc-bench");
+        System.out.println("[orc-bench] SparkSession opened for YARN cluster driver");
+    }
+
+    public static void closeYarnDriver() {
+        SparkSession session = held;
+        held = null;
+        if (session == null) {
+            return;
+        }
+        try {
+            session.stop();
+        } catch (Exception ignored) {
+            // The query backend may already have stopped the shared session.
+        }
+    }
+
+    static boolean runningInsideYarnCluster() {
+        return "true".equalsIgnoreCase(System.getenv("SPARK_YARN_MODE"));
+    }
+
+    private static SparkSession held;
 }

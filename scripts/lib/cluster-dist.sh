@@ -10,7 +10,7 @@
 #   deploy_mode=cluster: для --env-override и --metrics-jsonl, если путь —
 #   локальный файл, добавляет его в CLUSTER_FILES и подменяет аргумент
 #   приложения на basename. Spark --files кладёт файл в cwd контейнера AM.
-#   deploy_mode=client: APP_ARGS не меняются, CLUSTER_FILES пуст.
+#   Другой deploy_mode скрипты запуска больше не принимают.
 #
 # Ожидает глобальные: DEPLOY_MODE, APP_ARGS (массив).
 # Заполняет: CLUSTER_FILES (массив абсолютных путей).
@@ -18,6 +18,8 @@
 
 orc_bench_localize_driver_files() {
   CLUSTER_FILES=()
+  orc_bench_reject_client_overlay
+
   if [[ "${DEPLOY_MODE:-}" != "cluster" ]]; then
     return 0
   fi
@@ -59,4 +61,32 @@ orc_bench_localize_driver_files() {
   if [[ ${#rewritten[@]} -gt 0 ]]; then
     APP_ARGS=("${rewritten[@]}")
   fi
+}
+
+# environment.local.yaml is not the file the wrapper reads for --deploy-mode.
+# Reject client there as well, otherwise submit stays cluster while the overlay
+# still asks for client.
+orc_bench_reject_client_overlay() {
+  local i=0
+  local n=${#APP_ARGS[@]}
+  while [[ "$i" -lt "$n" ]]; do
+    if [[ "${APP_ARGS[$i]}" == "--env-override" ]]; then
+      if [[ $((i + 1)) -ge "$n" ]]; then
+        echo "ERROR: --env-override requires a path" >&2
+        return 2
+      fi
+      local path="${APP_ARGS[$((i + 1))]}"
+      if [[ -f "$path" ]] && grep -Eq \
+        '^[[:space:]]*deploy_mode:[[:space:]]*["'\'']?client["'\'']?[[:space:]]*(#.*)?$' \
+        "$path"; then
+        echo "ERROR: client deploy mode is disabled." >&2
+        echo "  $path sets deploy_mode: client. Submit is cluster-only." >&2
+        echo "  Remove that line (environment.yaml already sets deploy_mode: cluster)." >&2
+        return 2
+      fi
+      i=$((i + 2))
+      continue
+    fi
+    i=$((i + 1))
+  done
 }

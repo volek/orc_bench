@@ -12,7 +12,7 @@
 > Машина разработки (этот host) подходит только для сборки, unit/mock-тестов и упаковки артефактов (разделы 1–2).  
 > С этого host **не** запускать: live Kerberos к кластерному KDC, HDFS, `spark-submit` на YARN, Hive JDBC.
 
-**Зрелость приложения (на момент документа):** реализованы CP0–CP10 **(A)** — фазы CLI + отчёты + скрипты кластерного запуска / packaging / runbook + **Pilot S** (`conf/pilot-s.yaml`, `scripts/run-pilot-s.sh`, чеклист калибровки §12). `deploy_mode=cluster` по умолчанию, переключение на `client`. Live preflight/generate/materialize/run/final / pilot trial на HDFS/YARN/HS2 — **только на ноде** (CP3–CP10 **(B)** pending).
+**Зрелость приложения (на момент документа):** реализованы CP0–CP10 **(A)** — фазы CLI + отчёты + скрипты кластерного запуска / packaging / runbook + **Pilot S** (`conf/pilot-s.yaml`, `scripts/run-pilot-s.sh`, чеклист калибровки §12). Запуск только в **`deploy_mode=cluster`**. Скрипты отклоняют `--deploy-mode client` и `spark.deploy_mode: client`. Live preflight/generate/materialize/run/final / pilot trial на HDFS/YARN/HS2 — **только на ноде** (CP3–CP10 **(B)** pending).
 
 ---
 
@@ -151,20 +151,21 @@ echo "$JAVA_HOME"
 
 ```bash
 cp conf/environment.local.yaml.example conf/environment.local.yaml
-# отредактируйте при необходимости: deploy_mode, executor_*, llap_*, free_space_gib, …
+# отредактируйте при необходимости: executor_*, llap_*, free_space_gib, …
 ```
 
 Типичные правки:
 
 | Поле | Зачем |
 |---|---|
-| `spark.deploy_mode: client` | Driver на submit-ноде (логи/results проще); по умолчанию в configs — **`cluster`** |
 | `spark.executor_*` | Калибровка после первого trial (§8.1 плана) |
 | `hdfs.free_space_gib` | Актуальный снимок для preflight capacity |
 
+`spark.deploy_mode` остаётся **`cluster`**. Значение `client` в `environment.local.yaml` или флаг `--deploy-mode client` скрипты завершают с ошибкой.
+
 Передача: `--env-override conf/environment.local.yaml`.
 
-В `deploy_mode=cluster` (значение по умолчанию) `run-benchmark.sh` и `spark-submit-orc-bench.sh` сами добавляют `spark-submit --files` для этого файла и для `--metrics-jsonl`, а в приложение передают только имя файла. Driver в контейнере AM открывает его из своей рабочей директории. В `client` путь `conf/environment.local.yaml` остаётся как есть: процесс идёт на submit-ноде. Прямой `spark-submit` без `--files` файл в контейнер не кладёт — см. §7.3.
+В cluster mode `run-benchmark.sh` и `spark-submit-orc-bench.sh` сами добавляют `spark-submit --files` для этого файла и для `--metrics-jsonl`, а в приложение передают только имя файла. Driver в контейнере AM открывает его из своей рабочей директории. Прямой `spark-submit` без `--files` файл в контейнер не кладёт — см. §7.3. Фазы, которые сами не создают `SparkSession` (preflight, report, dry-run), при `SPARK_YARN_MODE=true` открывают сессию на время процесса: без неё YARN завершает AM с `User did not initialize spark context`.
 
 ---
 
@@ -293,7 +294,7 @@ Dev-host smoke (без кластера):
 ### 7.1. Через обёртку (рекомендуется)
 
 ```bash
-# deploy_mode=cluster по умолчанию
+# deploy_mode=cluster, единственный режим
 ./scripts/run-benchmark.sh \
   --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
   --config conf \
@@ -301,9 +302,6 @@ Dev-host smoke (без кластера):
   --phase preflight \
   --env-override conf/environment.local.yaml \
   --results-dir results
-
-# переключение на client:
-./scripts/run-benchmark.sh --deploy-mode client ...остальные флаги...
 ```
 
 ### 7.2. Низкоуровневый скрипт
@@ -341,35 +339,18 @@ spark-submit \
   --results-dir results
 ```
 
-`--files` обязателен при ручном вызове: в контейнере AM нет каталога `conf/` со шлюза. Обёртки из §7.1 и §7.2 делают эту подмену сами. Базовые YAML (`environment.yaml`, `benchmark.yaml`, …) уже лежат в fat-jar и с classpath читаются без `--files`.
+`--files` обязателен при ручном вызове: в контейнере AM нет каталога `conf/` со шлюза. Обёртки из §7.1 и §7.2 делают эту подмену сами. Базовые YAML (`environment.yaml`, `benchmark.yaml`, …) уже лежат в fat-jar и с classpath читаются без `--files`. `--deploy-mode` здесь только `cluster`.
 
-### 7.4. Client mode
+### 7.4. Где смотреть вывод драйвера
 
-```bash
-spark-submit \
-  --master yarn \
-  --deploy-mode client \
-  --queue default \
-  --num-executors 10 \
-  --executor-cores 4 \
-  --executor-memory 16g \
-  --class orcbench.Main \
-  ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --config conf --scale S --phase preflight \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
-```
+Драйвер работает в контейнере ApplicationMaster, не на submit-ноде.
 
-В **client** режиме `results/` пишется на submit-ноде рядом с CWD — проще забрать отчёты (`./scripts/fetch-results.sh --latest`).
+1. **Stdout/stderr драйвера** (текст preflight, `[orc-bench] OK`, ошибки): `yarn logs -applicationId <appId>`. Идентификатор приложения печатает `spark-submit`.
+2. **Файлы `--results-dir`** пишутся на локальный диск узла AM и удаляются вместе с контейнером. Каталог `results/` на submit-ноде после такого прогона пуст. `./scripts/fetch-results.sh` упакует каталог, только если он уже лежит на той машине, где запущен скрипт.
+3. **Данные бенчмарка** остаются в HDFS под `/orc_test` (см. §8.3).
+4. **Общий каталог**, если на узлах YARN смонтирован один и тот же путь: `--results-dir /shared/orc-bench/results`. Путь должен быть доступен процессу AM.
 
-В **cluster** режиме driver на AM: локальный `--results-dir` на submit-ноде часто **пуст** (артефакты внутри контейнера AM). Практики (подтвердить на CP9 **(B)**):
-
-1. **Рекомендуется для отчётов:** `--deploy-mode client` (флаг скрипта или `spark.deploy_mode: client` в `environment.local.yaml`) — `results/<runId>/` сразу на ноде.
-2. **Hybrid:** live generate/materialize/run в `cluster`; затем на ноде `--phase report` / `--phase final` с `--metrics-jsonl` / `--run-id`, если metrics уже скопированы на локальный FS.
-3. **YARN logs:** `yarn logs -applicationId <appId>` — искать stdout driver’а / пути к metrics (если писались только на AM).
-4. **Общий FS (опционально):** если на нодах есть NFS/общий mount — укажите `--results-dir /shared/orc-bench/results` (путь должен быть доступен driver’у в выбранном deploy_mode).
-
-Итог CP9 **(A):** скрипты и runbook готовы; фактическая доставка results при устойчивом `deploy_mode=cluster` — **валидация на ноде (B)**.
+Preflight и другие фазы без своих Spark-задач всё равно открывают `SparkSession` на время драйвера. Иначе AM завершается с `User did not initialize spark context` (exit 13).
 ---
 
 ## 8. Где лежат результаты и как забрать
@@ -387,10 +368,11 @@ results/<runId>/
   preflight-notes.txt     # preflight
 ```
 
-`runId` печатается в stdout в начале запуска.  
-Повторный отчёт с уже собранных metrics: `--phase report|final` + `--run-id <id>` и/или `--metrics-jsonl <path>` (fixtures / dump с ноды).
+`runId` печатается в stdout драйвера (`yarn logs -applicationId <appId>`, §7.4). На submit-ноде каталога `results/<runId>/` после cluster-запуска обычно нет: файлы писал процесс AM.
 
-Скопировать на рабочую машину:
+Повторный отчёт с уже собранных metrics: `--phase report|final` + `--run-id <id>` и/или `--metrics-jsonl <path>` (fixtures / файл, скопированный с общего каталога).
+
+Упаковка, если каталог уже есть на этой машине (общий mount или копия):
 
 ```bash
 # на ноде — упаковать
@@ -446,7 +428,9 @@ hdfs dfs -du -h /orc_test/S
 | HDFS capacity / preflight fail | `hdfs.free_space_gib` vs scale (S/M/L); актуальный снимок в `environment.local.yaml` |
 | Hive JDBC fail | ZK URL из `environment.yaml`; сеть с ноды; ticket ещё валиден |
 | Много `skipped` LLAP | `llap_daemons_running_verified` / live probe; ожидаемо до зелёного probe |
-| Нет `results/` после cluster mode | Driver на AM — см. §7.4; `--deploy-mode client` или hybrid report; подтвердить на CP9 (B) |
+| Нет `results/` на submit-ноде | Ожидаемо для cluster mode — см. §7.4; смотреть `yarn logs -applicationId <appId>` |
+| `User did not initialize spark context` / exit 13 | Драйвер завершился без SparkContext. Нужен jar, в котором preflight открывает сессию при `SPARK_YARN_MODE=true` |
+| `client deploy mode is disabled` | Уберите `spark.deploy_mode: client` из `environment.local.yaml`; не передавайте `--deploy-mode client` |
 | `spark-submit` / live Kerberos на laptop | Не запускать live с этого host; локально только `--dry-run-submit` / packaging |
 | Phase not implemented | Все фазы CLI (A) готовы CP1–CP8; live на ноде — CP3–CP9 (B) |
 
@@ -482,7 +466,7 @@ hdfs dfs -du -h /orc_test/S
 
 Все cluster-side скрипты:
 
-- по умолчанию **`deploy_mode=cluster`**, queue **`default`**, executors **10×4×16g** (из `environment.yaml` / overrides);
+- режим submit — **только `deploy_mode=cluster`** (client отключён), queue **`default`**, executors **10×4×16g** (из `environment.yaml` / overrides);
 - **не** содержат секретов — только пути/имена из конфигов;
 - на developer host поддерживают **`--dry-run-submit` / `--dry-run`** (печать команды без submit);
 - при отсутствии `spark-submit`/`hdfs` печатают WARNING/ERROR и отсылают к этому runbook;
@@ -520,7 +504,7 @@ hdfs dfs -du -h /orc_test/S
 | materialize (pilot) wall time | ________ |
 | run (pilot) wall time / p50 notes | ________ |
 | GC / spill / OO M на executors | ________________ |
-| `results/<runId>/` доставлен? (cluster vs client, §7.4) | ________________ |
+| `results/<runId>/` виден в `yarn logs`? | ________________ |
 | Skipped / failed cells | ________________ |
 
 ### 12.3. Финальные значения для S (после согласования)
@@ -531,7 +515,7 @@ hdfs dfs -du -h /orc_test/S
 | `executor_cores` | ________ | |
 | `executor_memory_gib` | ________ | |
 | Concurrency levels (S) | ________ | не слепой набор 1…50; capacity-aware |
-| `deploy_mode` (cluster / client) | ________ | client — если нужна локальная `results/` |
+| `deploy_mode` | cluster | client отключён |
 
 ### 12.4. Решение о расширении
 

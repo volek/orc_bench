@@ -12,7 +12,7 @@
 # Параметры submit (до --):
 #   -h, --help              показать эту справку
 #   --jar PATH              fat-jar (ORC_BENCH_JAR или путь по умолчанию)
-#   --deploy-mode MODE      cluster|client (ORC_BENCH_DEPLOY_MODE / YAML; default cluster)
+#   --deploy-mode MODE      только cluster (client отключён; ORC_BENCH_DEPLOY_MODE / YAML)
 #   --queue NAME            YARN-очередь (ORC_BENCH_QUEUE / YAML; default default)
 #   --num-executors N       число executor'ов (default 10)
 #   --executor-cores N      ядра на executor (default 4)
@@ -22,9 +22,10 @@
 #   --dry-run               только напечатать команду и выйти 0
 #   --                      дальше аргументы для orcbench.Main
 #
-# Cluster mode:
+# Cluster mode (единственный):
 #   Локальные --env-override и --metrics-jsonl уходят в spark-submit --files,
 #   в Main передаётся basename (файл появляется в cwd контейнера AM).
+#   --deploy-mode client и spark.deploy_mode: client в YAML завершают скрипт с ошибкой.
 #
 # После -- : флаги Main (--config, --phase, --scale, …)
 #
@@ -40,7 +41,7 @@
 #   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
 #
 # Пример:
-#   ./scripts/spark-submit-orc-bench.sh --deploy-mode client -- \
+#   ./scripts/spark-submit-orc-bench.sh --deploy-mode cluster -- \
 #       --config conf --scale S --phase preflight --dry-run
 # =============================================================================
 set -euo pipefail
@@ -66,7 +67,7 @@ MAIN_ARGS=()
 PARSING_MAIN=0
 
 usage() {
-  sed -n '2,45p' "$0" | sed 's/^# \?//'
+  sed -n '2,46p' "$0" | sed 's/^# \?//'
   exit 2
 }
 
@@ -152,9 +153,14 @@ if [[ ! -f "$JAR" ]]; then
 fi
 
 case "$DEPLOY_MODE" in
-  cluster|client) ;;
+  cluster) ;;
+  client)
+    echo "ERROR: client deploy mode is disabled." >&2
+    echo "  Submit is cluster-only. Remove spark.deploy_mode: client from" >&2
+    echo "  environment.local.yaml and do not pass --deploy-mode client." >&2
+    exit 2 ;;
   *)
-    echo "ERROR: --deploy-mode must be cluster or client (got: $DEPLOY_MODE)" >&2
+    echo "ERROR: --deploy-mode must be cluster (got: $DEPLOY_MODE)" >&2
     exit 2 ;;
 esac
 

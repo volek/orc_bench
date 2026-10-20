@@ -128,7 +128,7 @@ On the Hadoop/SDP node (not the developer laptop):
 
   1. tar -xzf orc-bench-cluster-bundle.tgz && cd orc-bench
   2. cp conf/environment.local.yaml.example conf/environment.local.yaml
-     # edit deploy_mode / executor_* if needed (default deploy_mode=cluster)
+     # edit executor_* if needed (deploy_mode is cluster only)
   3. Ensure Kerberos ticket/principal is already available; keytab at path from
      conf/environment.yaml for spark-submit --principal/--keytab (do not commit it)
   4. ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
@@ -155,8 +155,8 @@ Pilot S experiments: conf/pilot-s.yaml
   materialize: MINMAX_SORT,BLOOM_USER,PARTITIONING
   run: ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION
 
-Switch to client mode (easier local results/):
-  ./scripts/run-benchmark.sh --deploy-mode client ...
+Deploy mode is cluster only. Scripts reject --deploy-mode client
+and spark.deploy_mode: client in environment.local.yaml.
 
 Defaults: yarn / deploy_mode=cluster / queue=default / executors 10×4×16g
 
