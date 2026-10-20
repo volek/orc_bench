@@ -44,6 +44,14 @@
 # =============================================================================
 set -euo pipefail
 
+# CRLF copies fail with cryptic ": No such file or directory" (\r hides the path).
+if grep -q $'\r' "$0" 2>/dev/null; then
+  echo "ERROR: $0 has Windows CRLF line endings." >&2
+  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh" >&2
+  echo "  Or:                dos2unix scripts/*.sh" >&2
+  exit 1
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -179,7 +187,10 @@ load_kerberos_from_yaml
 
 if [[ ! -f "$JAR" ]]; then
   echo "ERROR: fat jar not found: $JAR" >&2
-  echo "  Build on JDK 8: ./scripts/build.sh  (or copy jar onto this node)" >&2
+  echo "  Expected (cluster bundle): $ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar" >&2
+  echo "  Expected (git checkout):   $ROOT/build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar" >&2
+  echo "  Override: --jar PATH  or  ORC_BENCH_JAR=PATH" >&2
+  echo "  Build on JDK 8: ./scripts/build.sh  (or re-copy jar onto this node)" >&2
   exit 1
 fi
 

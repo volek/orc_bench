@@ -130,7 +130,10 @@ done
 apply_defaults
 
 if [[ ! -f "$JAR" ]]; then
-  echo "ERROR: jar not found: $JAR" >&2
+  echo "ERROR: fat jar not found: $JAR" >&2
+  echo "  Expected (cluster bundle): $ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar" >&2
+  echo "  Expected (git checkout):   $ROOT/build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar" >&2
+  echo "  Override: --jar PATH  or  ORC_BENCH_JAR=PATH" >&2
   exit 1
 fi
 

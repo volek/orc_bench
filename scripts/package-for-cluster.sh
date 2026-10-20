@@ -78,10 +78,17 @@ for s in \
   with-jdk8.sh
 do
   if [[ -f "$ROOT/scripts/$s" ]]; then
-    cp -a "$ROOT/scripts/$s" "$BUNDLE/scripts/$s"
+    # Strip CR so Windows/autocrlf checkouts cannot poison the node bundle
+    # (CRLF → cryptic ": No such file or directory" on exec).
+    tr -d '\r' < "$ROOT/scripts/$s" > "$BUNDLE/scripts/$s"
     chmod +x "$BUNDLE/scripts/$s"
   fi
 done
+
+if grep -q $'\r' "$BUNDLE"/scripts/*.sh 2>/dev/null; then
+  echo "ERROR: CRLF still present in staged scripts after strip - aborting." >&2
+  exit 1
+fi
 
 if [[ -f "$ROOT/conf/environment.local.yaml.example" ]]; then
   cp -a "$ROOT/conf/environment.local.yaml.example" \
@@ -112,6 +119,14 @@ On the Hadoop/SDP node (not the developer laptop):
   7. ./scripts/run-pilot-s.sh --phase materialize --env-override conf/environment.local.yaml
   8. ./scripts/run-pilot-s.sh --phase run --env-override conf/environment.local.yaml
   9. Fill calibration checklist (runbook §12); finalize executor_* / concurrency for S
+
+If scripts fail with ": No such file or directory" (empty path before colon):
+  sed -i 's/\r$//' scripts/*.sh
+  # or: dos2unix scripts/*.sh
+  Then re-run. Cause is Windows CRLF line endings on *.sh.
+
+Jar layout in this bundle (repo root, not build/libs/):
+  ./orc-bench-0.1.0-SNAPSHOT-all.jar
 
 Pilot S experiments: conf/pilot-s.yaml
   materialize: MINMAX_SORT,BLOOM_USER,PARTITIONING

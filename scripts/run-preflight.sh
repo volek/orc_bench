@@ -22,6 +22,15 @@
 # =============================================================================
 set -euo pipefail
 
+# If this file (or siblings) were copied with Windows CRLF, bash path errors
+# display as ": No such file or directory" because \r resets the terminal line.
+if grep -q $'\r' "$0" 2>/dev/null; then
+  echo "ERROR: $0 has Windows CRLF line endings." >&2
+  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh" >&2
+  echo "  Or:                dos2unix scripts/*.sh" >&2
+  exit 1
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIVE=0
 DRY_RUN_SUBMIT=0
@@ -62,4 +71,16 @@ if [[ "$DRY_RUN_SUBMIT" -eq 0 ]] && ! command -v spark-submit >/dev/null 2>&1; t
   exit 1
 fi
 
-exec "$ROOT/scripts/run-benchmark.sh" "${ARGS[@]}" "${FORWARD[@]}"
+BENCH="$ROOT/scripts/run-benchmark.sh"
+if [[ ! -f "$BENCH" ]]; then
+  echo "ERROR: missing $BENCH" >&2
+  echo "  Expected scripts/ next to conf/ and the fat-jar at repo/bundle root." >&2
+  exit 1
+fi
+if grep -q $'\r' "$BENCH" 2>/dev/null; then
+  echo "ERROR: $BENCH has Windows CRLF line endings." >&2
+  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh" >&2
+  exit 1
+fi
+
+exec "$BENCH" "${ARGS[@]}" "${FORWARD[@]}"
