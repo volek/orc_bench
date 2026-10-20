@@ -24,6 +24,11 @@
 #   --keytab PATH           путь к keytab (ORC_BENCH_KEYTAB / YAML)
 #   --dry-run-submit        только напечатать строку spark-submit и выйти 0
 #
+# Cluster mode:
+#   Локальные --env-override и --metrics-jsonl уходят в spark-submit --files,
+#   в Main передаётся basename (файл появляется в cwd контейнера AM).
+#   Client mode пути не меняет.
+#
 # Переменные окружения (те же смыслы, что флаги выше):
 #   ORC_BENCH_JAR, ORC_BENCH_MASTER, ORC_BENCH_DEPLOY_MODE, ORC_BENCH_QUEUE,
 #   ORC_BENCH_NUM_EXECUTORS, ORC_BENCH_EXECUTOR_CORES, ORC_BENCH_EXECUTOR_MEMORY,
@@ -80,7 +85,7 @@ ENV_YAML="${ORC_BENCH_ENV_YAML:-$ROOT/conf/environment.yaml}"
 APP_ARGS=()
 
 usage() {
-  sed -n '2,50p' "$0" | sed 's/^# \?//'
+  sed -n '2,55p' "$0" | sed 's/^# \?//'
   exit 2
 }
 
@@ -211,6 +216,10 @@ case "$DEPLOY_MODE" in
     exit 2 ;;
 esac
 
+# shellcheck source=lib/cluster-dist.sh
+source "$ROOT/scripts/lib/cluster-dist.sh"
+orc_bench_localize_driver_files
+
 SUBMIT=(
   spark-submit
   --master "$MASTER"
@@ -221,6 +230,17 @@ SUBMIT=(
   --executor-memory "$EXECUTOR_MEMORY"
   --class orcbench.Main
 )
+
+if [[ ${#CLUSTER_FILES[@]} -gt 0 ]]; then
+  files_csv=""
+  for f in "${CLUSTER_FILES[@]}"; do
+    if [[ -n "$files_csv" ]]; then
+      files_csv+=","
+    fi
+    files_csv+="$f"
+  done
+  SUBMIT+=(--files "$files_csv")
+fi
 
 if [[ -n "$PRINCIPAL" && -n "$KEYTAB" ]]; then
   if [[ ! -f "$KEYTAB" && "$DRY_RUN_SUBMIT" -eq 0 ]]; then

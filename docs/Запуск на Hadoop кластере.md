@@ -164,6 +164,8 @@ cp conf/environment.local.yaml.example conf/environment.local.yaml
 
 Передача: `--env-override conf/environment.local.yaml`.
 
+В `deploy_mode=cluster` (значение по умолчанию) `run-benchmark.sh` и `spark-submit-orc-bench.sh` сами добавляют `spark-submit --files` для этого файла и для `--metrics-jsonl`, а в приложение передают только имя файла. Driver в контейнере AM открывает его из своей рабочей директории. В `client` путь `conf/environment.local.yaml` остаётся как есть: процесс идёт на submit-ноде. Прямой `spark-submit` без `--files` файл в контейнер не кладёт — см. §7.3.
+
 ---
 
 ## 6. Фазы: dry-run vs live
@@ -329,14 +331,17 @@ spark-submit \
   --executor-memory 16g \
   --principal pvm-omltp-sdp@OPSMON.SBT \
   --keytab "$HOME/keytab/pvm-omltp-sdp.keytab" \
+  --files conf/environment.local.yaml \
   --class orcbench.Main \
   ./orc-bench-0.1.0-SNAPSHOT-all.jar \
   --config conf \
   --scale S \
   --phase preflight \
-  --env-override conf/environment.local.yaml \
+  --env-override environment.local.yaml \
   --results-dir results
 ```
+
+`--files` обязателен при ручном вызове: в контейнере AM нет каталога `conf/` со шлюза. Обёртки из §7.1 и §7.2 делают эту подмену сами. Базовые YAML (`environment.yaml`, `benchmark.yaml`, …) уже лежат в fat-jar и с classpath читаются без `--files`.
 
 ### 7.4. Client mode
 

@@ -22,6 +22,10 @@
 #   --dry-run               только напечатать команду и выйти 0
 #   --                      дальше аргументы для orcbench.Main
 #
+# Cluster mode:
+#   Локальные --env-override и --metrics-jsonl уходят в spark-submit --files,
+#   в Main передаётся basename (файл появляется в cwd контейнера AM).
+#
 # После -- : флаги Main (--config, --phase, --scale, …)
 #
 # Переменные окружения:
@@ -62,7 +66,7 @@ MAIN_ARGS=()
 PARSING_MAIN=0
 
 usage() {
-  sed -n '2,41p' "$0" | sed 's/^# \?//'
+  sed -n '2,45p' "$0" | sed 's/^# \?//'
   exit 2
 }
 
@@ -154,6 +158,18 @@ case "$DEPLOY_MODE" in
     exit 2 ;;
 esac
 
+APP_ARGS=()
+if [[ ${#MAIN_ARGS[@]} -gt 0 ]]; then
+  APP_ARGS=("${MAIN_ARGS[@]}")
+fi
+# shellcheck source=lib/cluster-dist.sh
+source "$ROOT/scripts/lib/cluster-dist.sh"
+orc_bench_localize_driver_files
+MAIN_ARGS=()
+if [[ ${#APP_ARGS[@]} -gt 0 ]]; then
+  MAIN_ARGS=("${APP_ARGS[@]}")
+fi
+
 CMD=(
   spark-submit
   --master yarn
@@ -164,6 +180,17 @@ CMD=(
   --executor-memory "$EXECUTOR_MEMORY"
   --class orcbench.Main
 )
+
+if [[ ${#CLUSTER_FILES[@]} -gt 0 ]]; then
+  files_csv=""
+  for f in "${CLUSTER_FILES[@]}"; do
+    if [[ -n "$files_csv" ]]; then
+      files_csv+=","
+    fi
+    files_csv+="$f"
+  done
+  CMD+=(--files "$files_csv")
+fi
 
 if [[ -n "$PRINCIPAL" && -n "$KEYTAB" ]]; then
   CMD+=(--principal "$PRINCIPAL" --keytab "$KEYTAB")

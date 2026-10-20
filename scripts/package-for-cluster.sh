@@ -75,11 +75,13 @@ rm -f "$BUNDLE/conf/environment.local.yaml" 2>/dev/null || true
 find "$BUNDLE" \( -name '*.keytab' -o -name '*.ktab' -o -name '*.pem' \
   -o -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \) -type f -delete 2>/dev/null || true
 
-# Shared logging helper (sourced by all scripts/*.sh)
-if [[ -f "$ROOT/scripts/lib/logging.sh" ]]; then
-  tr -d '\r' < "$ROOT/scripts/lib/logging.sh" > "$BUNDLE/scripts/lib/logging.sh"
-  chmod 644 "$BUNDLE/scripts/lib/logging.sh"
-fi
+# Shared helpers (sourced by scripts/*.sh)
+for lib in logging.sh cluster-dist.sh; do
+  if [[ -f "$ROOT/scripts/lib/$lib" ]]; then
+    tr -d '\r' < "$ROOT/scripts/lib/$lib" > "$BUNDLE/scripts/lib/$lib"
+    chmod 644 "$BUNDLE/scripts/lib/$lib"
+  fi
+done
 
 # Cluster-side + packaging scripts only (skip local JDK wrapper noise is OK to include)
 for s in \
@@ -130,6 +132,7 @@ On the Hadoop/SDP node (not the developer laptop):
   3. Ensure Kerberos ticket/principal is already available; keytab at path from
      conf/environment.yaml for spark-submit --principal/--keytab (do not commit it)
   4. ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
+     # cluster mode (default): the script ships that file via spark-submit --files
   5. ./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
   6. ./scripts/run-pilot-s.sh --phase generate --env-override conf/environment.local.yaml
   7. ./scripts/run-pilot-s.sh --phase materialize --env-override conf/environment.local.yaml
