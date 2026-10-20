@@ -19,6 +19,12 @@
 #   ORC_BENCH_PRINCIPAL   principal (перекрывает YAML)
 #   ORC_BENCH_KEYTAB      путь к keytab (перекрывает YAML)
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/kinit-bench-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
+#
 # Примеры (узел):
 #   ./scripts/kinit-bench.sh
 #   ORC_BENCH_KEYTAB=/path/to.keytab ./scripts/kinit-bench.sh
@@ -31,13 +37,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 YAML="${ORC_BENCH_ENV_YAML:-$ROOT/conf/environment.yaml}"
 PRINCIPAL="${ORC_BENCH_PRINCIPAL:-}"
 KEYTAB="${ORC_BENCH_KEYTAB:-}"
 DRY_RUN=0
 
 usage() {
-  sed -n '2,30p' "$0" | sed 's/^# \?//'
+  sed -n '2,36p' "$0" | sed 's/^# \?//'
   exit 2
 }
 

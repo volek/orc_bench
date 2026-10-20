@@ -32,6 +32,8 @@ Main-Class: `orcbench.Main`
 ./scripts/package-for-cluster.sh --with-runbook
 ```
 
+Релизный `dist/orc-bench-cluster-bundle.tgz` хранится в репо (пересборка — тем же скриптом). Остальное под `dist/` в `.gitignore`.
+
 ## CLI (локальный smoke — без живого кластера)
 
 ```bash

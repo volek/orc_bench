@@ -30,6 +30,12 @@
 #   ORC_BENCH_PRINCIPAL, ORC_BENCH_KEYTAB, ORC_BENCH_ENV_YAML
 #   (YAML по умолчанию: conf/environment.yaml)
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/run-benchmark-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
+#
 # Флаги приложения (пробрасываются в orcbench.Main):
 #   --config, --scale, --phase, --experiments, --engines, --env-override,
 #   --results-dir, --run-id, --metrics-jsonl, --keep-layouts
@@ -47,12 +53,16 @@ set -euo pipefail
 # CRLF copies fail with cryptic ": No such file or directory" (\r hides the path).
 if grep -q $'\r' "$0" 2>/dev/null; then
   echo "ERROR: $0 has Windows CRLF line endings." >&2
-  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh" >&2
-  echo "  Or:                dos2unix scripts/*.sh" >&2
+  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh scripts/lib/*.sh" >&2
+  echo "  Or:                dos2unix scripts/*.sh scripts/lib/*.sh" >&2
   exit 1
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 cd "$ROOT"
 
 JAR="${ORC_BENCH_JAR:-}"
@@ -70,7 +80,7 @@ ENV_YAML="${ORC_BENCH_ENV_YAML:-$ROOT/conf/environment.yaml}"
 APP_ARGS=()
 
 usage() {
-  sed -n '2,44p' "$0" | sed 's/^# \?//'
+  sed -n '2,50p' "$0" | sed 's/^# \?//'
   exit 2
 }
 

@@ -12,14 +12,25 @@
 # Переменные окружения:
 #   косвенно JAVA_HOME_8 — через with-jdk8.sh, если обёртка используется
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/build-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено — вложенный with-jdk8.sh без повторного tee
+#
 # Пример:
 #   ./scripts/build.sh
 # =============================================================================
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 cd "$ROOT"
 
-if "$ROOT/scripts/with-jdk8.sh" true 2>/dev/null; then
+# Probe with ORC_BENCH_LOGGING=1 so with-jdk8 does not open a second log file.
+if ORC_BENCH_LOGGING=1 "$ROOT/scripts/with-jdk8.sh" true 2>/dev/null; then
   exec "$ROOT/scripts/with-jdk8.sh" ./gradlew clean build --no-daemon
 fi
 

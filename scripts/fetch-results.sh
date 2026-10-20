@@ -20,6 +20,12 @@
 # Переменные окружения:
 #   ORC_BENCH_RESULTS_DIR  каталог results по умолчанию
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/fetch-results-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
+#
 # Примеры (на узле):
 #   ./scripts/fetch-results.sh --run-id 2026-10-19T12-00-00.000Z_abcd1234
 #   ./scripts/fetch-results.sh --results-dir results --run-id <id> --out /tmp/r.tgz
@@ -30,6 +36,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 RESULTS_DIR="${ORC_BENCH_RESULTS_DIR:-$ROOT/results}"
 RUN_ID=""
 OUT=""
@@ -37,7 +47,7 @@ LIST=0
 LATEST=0
 
 usage() {
-  sed -n '2,29p' "$0" | sed 's/^# \?//'
+  sed -n '2,35p' "$0" | sed 's/^# \?//'
   exit 2
 }
 

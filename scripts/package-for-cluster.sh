@@ -17,6 +17,12 @@
 #   ORC_BENCH_BUNDLE   путь к .tgz по умолчанию
 #                      (иначе dist/orc-bench-cluster-bundle.tgz)
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/package-for-cluster-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
+#
 # Примеры:
 #   ./scripts/package-for-cluster.sh
 #   ./scripts/package-for-cluster.sh --out dist/my-bundle.tgz
@@ -25,6 +31,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 cd "$ROOT"
 
 OUT="${ORC_BENCH_BUNDLE:-$ROOT/dist/orc-bench-cluster-bundle.tgz}"
@@ -37,7 +47,7 @@ while [[ $# -gt 0 ]]; do
     --jar) JAR="$2"; shift 2 ;;
     --with-runbook) WITH_RUNBOOK=1; shift ;;
     -h|--help)
-      sed -n '2,24p' "$0" | sed 's/^# \?//'
+      sed -n '2,30p' "$0" | sed 's/^# \?//'
       exit 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -55,7 +65,7 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 
 BUNDLE="$STAGE/orc-bench"
-mkdir -p "$BUNDLE/scripts" "$BUNDLE/conf"
+mkdir -p "$BUNDLE/scripts/lib" "$BUNDLE/conf"
 
 cp -a "$JAR" "$BUNDLE/orc-bench-0.1.0-SNAPSHOT-all.jar"
 # conf without local overlays / secrets
@@ -64,6 +74,12 @@ rm -f "$BUNDLE/conf/environment.local.yaml" 2>/dev/null || true
 # Defense in depth: never ship keytabs / credential blobs if present under conf/
 find "$BUNDLE" \( -name '*.keytab' -o -name '*.ktab' -o -name '*.pem' \
   -o -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \) -type f -delete 2>/dev/null || true
+
+# Shared logging helper (sourced by all scripts/*.sh)
+if [[ -f "$ROOT/scripts/lib/logging.sh" ]]; then
+  tr -d '\r' < "$ROOT/scripts/lib/logging.sh" > "$BUNDLE/scripts/lib/logging.sh"
+  chmod 644 "$BUNDLE/scripts/lib/logging.sh"
+fi
 
 # Cluster-side + packaging scripts only (skip local JDK wrapper noise is OK to include)
 for s in \
@@ -85,7 +101,7 @@ do
   fi
 done
 
-if grep -q $'\r' "$BUNDLE"/scripts/*.sh 2>/dev/null; then
+if grep -q $'\r' "$BUNDLE"/scripts/*.sh "$BUNDLE"/scripts/lib/*.sh 2>/dev/null; then
   echo "ERROR: CRLF still present in staged scripts after strip - aborting." >&2
   exit 1
 fi
@@ -121,9 +137,13 @@ On the Hadoop/SDP node (not the developer laptop):
   9. Fill calibration checklist (runbook §12); finalize executor_* / concurrency for S
 
 If scripts fail with ": No such file or directory" (empty path before colon):
-  sed -i 's/\r$//' scripts/*.sh
-  # or: dos2unix scripts/*.sh
+  sed -i 's/\r$//' scripts/*.sh scripts/lib/*.sh
+  # or: dos2unix scripts/*.sh scripts/lib/*.sh
   Then re-run. Cause is Windows CRLF line endings on *.sh.
+
+Local script logs (stdout+stderr): logs/<script>-YYYYMMDD-HHMMSS.log
+  Override: ORC_BENCH_LOG_DIR / ORC_BENCH_LOG_FILE
+
 
 Jar layout in this bundle (repo root, not build/libs/):
   ./orc-bench-0.1.0-SNAPSHOT-all.jar

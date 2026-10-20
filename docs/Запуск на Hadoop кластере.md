@@ -480,7 +480,8 @@ hdfs dfs -du -h /orc_test/S
 - по умолчанию **`deploy_mode=cluster`**, queue **`default`**, executors **10×4×16g** (из `environment.yaml` / overrides);
 - **не** содержат секретов — только пути/имена из конфигов;
 - на developer host поддерживают **`--dry-run-submit` / `--dry-run`** (печать команды без submit);
-- при отсутствии `spark-submit`/`hdfs` печатают WARNING/ERROR и отсылают к этому runbook.
+- при отсутствии `spark-submit`/`hdfs` печатают WARNING/ERROR и отсылают к этому runbook;
+- пишут локальные логи (stdout+stderr через `tee`) в **`logs/<script>-YYYYMMDD-HHMMSS.log`** рядом с корнем репо/бандла; каталог создаётся автоматически. Переопределение: `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`. Вложенные вызовы (`run-preflight` → `run-benchmark`, `build` → `with-jdk8`) не делают повторный tee (`ORC_BENCH_LOGGING=1`).
 
 ---
 

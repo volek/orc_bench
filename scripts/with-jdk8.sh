@@ -15,6 +15,12 @@
 #                         /usr/lib/jvm/java-8-openjdk-amd64,
 #                         /usr/lib/jvm/java-1.8.0-openjdk
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/with-jdk8-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
+#
 # Примеры:
 #   ./scripts/with-jdk8.sh ./gradlew test
 #   ./scripts/with-jdk8.sh java -version
@@ -22,6 +28,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
 
 candidates=(
   "${JAVA_HOME_8:-}"

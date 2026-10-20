@@ -15,6 +15,12 @@
 #   остальные args     пробрасываются в run-benchmark.sh
 #                      (напр. --env-override, --jar, --deploy-mode, …)
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/run-preflight-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено — вложенный run-benchmark.sh без повторного tee
+#
 # Примеры:
 #   ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
 #   ./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
@@ -26,18 +32,22 @@ set -euo pipefail
 # display as ": No such file or directory" because \r resets the terminal line.
 if grep -q $'\r' "$0" 2>/dev/null; then
   echo "ERROR: $0 has Windows CRLF line endings." >&2
-  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh" >&2
-  echo "  Or:                dos2unix scripts/*.sh" >&2
+  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh scripts/lib/*.sh" >&2
+  echo "  Or:                dos2unix scripts/*.sh scripts/lib/*.sh" >&2
   exit 1
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 LIVE=0
 DRY_RUN_SUBMIT=0
 FORWARD=()
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \?//'
+  sed -n '2,28p' "$0" | sed 's/^# \?//'
   exit 2
 }
 
@@ -79,7 +89,7 @@ if [[ ! -f "$BENCH" ]]; then
 fi
 if grep -q $'\r' "$BENCH" 2>/dev/null; then
   echo "ERROR: $BENCH has Windows CRLF line endings." >&2
-  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh" >&2
+  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh scripts/lib/*.sh" >&2
   exit 1
 fi
 

@@ -21,6 +21,12 @@
 # Переменные окружения:
 #   ORC_BENCH_PILOT_YAML    путь к YAML пилота (по умолчанию conf/pilot-s.yaml)
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/run-pilot-s-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено — вложенный run-benchmark.sh без повторного tee
+#
 # Примеры (узел):
 #   ./scripts/run-pilot-s.sh --phase generate --env-override conf/environment.local.yaml
 #   ./scripts/run-pilot-s.sh --phase materialize --env-override conf/environment.local.yaml
@@ -33,6 +39,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 PILOT_YAML="${ORC_BENCH_PILOT_YAML:-$ROOT/conf/pilot-s.yaml}"
 PHASE=""
 DRY_RUN_SUBMIT=0
@@ -40,7 +50,7 @@ PRINT_ONLY=0
 FORWARD=()
 
 usage() {
-  sed -n '2,32p' "$0" | sed 's/^# \?//'
+  sed -n '2,38p' "$0" | sed 's/^# \?//'
   exit 2
 }
 

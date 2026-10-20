@@ -29,6 +29,12 @@
 #   ORC_BENCH_NUM_EXECUTORS, ORC_BENCH_EXECUTOR_CORES, ORC_BENCH_EXECUTOR_MEMORY,
 #   ORC_BENCH_PRINCIPAL, ORC_BENCH_KEYTAB, ORC_BENCH_ENV_YAML
 #
+# Логирование (stdout+stderr → файл и консоль через tee):
+#   ORC_BENCH_LOG_DIR    каталог логов (по умолчанию <repo>/logs)
+#   ORC_BENCH_LOG_FILE   явный путь к лог-файлу
+#                        (иначе <dir>/spark-submit-orc-bench-YYYYMMDD-HHMMSS.log)
+#   ORC_BENCH_LOGGING=1  уже включено (вложенный вызов без повторного tee)
+#
 # Пример:
 #   ./scripts/spark-submit-orc-bench.sh --deploy-mode client -- \
 #       --config conf --scale S --phase preflight --dry-run
@@ -36,6 +42,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/logging.sh
+source "$ROOT/scripts/lib/logging.sh"
+orc_bench_enable_logging "$0" "$@"
+
 cd "$ROOT"
 
 JAR="${ORC_BENCH_JAR:-}"
@@ -52,7 +62,7 @@ MAIN_ARGS=()
 PARSING_MAIN=0
 
 usage() {
-  sed -n '2,35p' "$0" | sed 's/^# \?//'
+  sed -n '2,41p' "$0" | sed 's/^# \?//'
   exit 2
 }
 

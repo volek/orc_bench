@@ -8,6 +8,7 @@ out/
 .idea/
 *.iml
 *.log
+logs/
 .DS_Store
 results/
 generated/
@@ -29,4 +30,6 @@ credentials.json
 .env.*
 
 # Packaged cluster bundles (rebuild via scripts/package-for-cluster.sh)
-dist/
+# Ignore contents of dist/, but keep released *.tgz trackable (parent dir must not be fully ignored).
+dist/*
+!dist/*.tgz
