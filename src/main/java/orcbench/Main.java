@@ -41,15 +41,23 @@ public final class Main {
     public static void main(String[] args) {
         CliOptions.CliArgs cli = CliOptions.parse(args);
         if (cli == null) {
-            System.exit(2);
-            return;
+            // Never System.exit in YARN cluster mode: that runs ApplicationMaster
+            // shutdown hooks before finish(...), so the app is marked FAILED with
+            // "Shutdown hook called before final status was reported".
+            throw new IllegalArgumentException("Invalid CLI arguments (see usage above)");
         }
         try {
             run(cli);
         } catch (Throwable ex) {
             System.err.println("[fatal] " + ex.getMessage());
             ex.printStackTrace(System.err);
-            System.exit(1);
+            if (ex instanceof RuntimeException) {
+                throw (RuntimeException) ex;
+            }
+            if (ex instanceof Error) {
+                throw (Error) ex;
+            }
+            throw new RuntimeException(ex);
         }
     }
 
