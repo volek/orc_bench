@@ -15,6 +15,7 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import scala.collection.JavaConverters;
 
+import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,20 +53,12 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
             int parallelismHint,
             EventRowFactory factory,
             OrcWriteSettings orc) {
-        final EventRowFactory factoryF = factory;
         int partitions = Math.max(1, parallelismHint);
 
+        // Static FlatMapFunction: anonymous inner classes capture SparkOrcGenerateBackend
+        // (holds SparkSession) and fail with Task not serializable on YARN.
         JavaRDD<Row> rdd = spark.range(0L, rowCount).repartition(partitions).javaRDD()
-                .mapPartitions(new FlatMapFunction<Iterator<Long>, Row>() {
-                    @Override
-                    public Iterator<Row> call(Iterator<Long> iter) {
-                        List<Row> out = new ArrayList<>();
-                        while (iter.hasNext()) {
-                            out.add(toSparkRow(factoryF.create(iter.next())));
-                        }
-                        return out.iterator();
-                    }
-                });
+                .mapPartitions(new RowPartitionMapper(factory));
 
         Dataset<Row> df = spark.createDataFrame(rdd, eventSchema());
         org.apache.spark.sql.DataFrameWriter<Row> writer = df.write().mode(SaveMode.Overwrite)
@@ -162,6 +155,28 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
                 DataTypes.createStructField("id", DataTypes.StringType, false),
                 DataTypes.createStructField("type", DataTypes.StringType, false)
         })).write().mode(SaveMode.Overwrite).format("orc").save(path);
+    }
+
+    /**
+     * Executor-side mapper: only serializable {@link EventRowFactory} state, no outer backend.
+     */
+    static final class RowPartitionMapper
+            implements FlatMapFunction<Iterator<Long>, Row>, Serializable {
+        private static final long serialVersionUID = 1L;
+        private final EventRowFactory factory;
+
+        RowPartitionMapper(EventRowFactory factory) {
+            this.factory = factory;
+        }
+
+        @Override
+        public Iterator<Row> call(Iterator<Long> iter) {
+            List<Row> out = new ArrayList<>();
+            while (iter.hasNext()) {
+                out.add(toSparkRow(factory.create(iter.next())));
+            }
+            return out.iterator();
+        }
     }
 
     static StructType eventSchema() {

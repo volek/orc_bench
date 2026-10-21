@@ -431,6 +431,7 @@ hdfs dfs -du -h /orc_test/S
 | Нет `results/` на submit-ноде | Ожидаемо для cluster mode — см. §7.4; смотреть `yarn logs -applicationId <appId>` |
 | `User did not initialize spark context` / exit 13 | Драйвер завершился без SparkContext. В `yarn logs` должна быть строка `yarnAppId=application_...` и следом `SparkSession opened`. Если `yarnAppId=null`, на узле старый jar |
 | `Shutdown hook called before final status was reported` | Драйвер вызвал `SparkContext.stop()` **или** `System.exit(...)` до `finish(...)` у ApplicationMaster. В cluster mode нельзя останавливать сессию и нельзя вызывать `System.exit` из `main` (даже при ошибке — бросайте исключение). Смотрите реальную причину в `yarn logs -applicationId …` (`[fatal]`, stacktrace) |
+| `Task not serializable` / `NotSerializableException: SparkOrcGenerateBackend` | В `mapPartitions` нельзя захватывать backend/`SparkSession`. Нужен static `FlatMapFunction` + serializable `EventRowFactory` |
 | `client deploy mode is disabled` | Уберите `spark.deploy_mode: client` из `environment.local.yaml`; не передавайте `--deploy-mode client` |
 | `spark-submit` / live Kerberos на laptop | Не запускать live с этого host; локально только `--dry-run-submit` / packaging |
 | Phase not implemented | Все фазы CLI (A) готовы CP1–CP8; live на ноде — CP3–CP9 (B) |

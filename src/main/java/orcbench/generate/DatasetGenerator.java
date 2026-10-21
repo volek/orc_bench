@@ -119,12 +119,9 @@ public final class DatasetGenerator {
         final Map<String, ColumnGenerator> catalog = ds.parameters.catalog;
         final Map<String, Map<String, Object>> jsonTemplates = ds.jsonTemplates;
 
-        EventRowFactory factory = new EventRowFactory() {
-            @Override
-            public EventRow create(long rowId) {
-                return buildEventRow(rowId, seed, algo, fromMs, toMs, paramKeys, catalog, jsonTemplates);
-            }
-        };
+        // Explicit serializable factory (not an anonymous class) for Spark executors.
+        EventRowFactory factory = new SynthEventRowFactory(
+                seed, algo, fromMs, toMs, paramKeys, catalog, jsonTemplates);
 
         OrcWriteSettings orc = toWriteSettings(cfg.benchmark.physicalBaseline.orc);
         int batch = Math.max(1, ds.generation.batchRows);
@@ -162,6 +159,40 @@ public final class DatasetGenerator {
     public static GenerateResult generate(LoadedConfig cfg, String scale, boolean dryRun, boolean useMock)
             throws Exception {
         return generate(cfg, scale, dryRun, useMock, null);
+    }
+
+    /** Serializable row factory shipped to Spark executors (no outer DatasetGenerator capture). */
+    static final class SynthEventRowFactory implements EventRowFactory {
+        private static final long serialVersionUID = 1L;
+        private final long seed;
+        private final String algo;
+        private final long fromMs;
+        private final long toMs;
+        private final List<String> paramKeys;
+        private final Map<String, ColumnGenerator> catalog;
+        private final Map<String, Map<String, Object>> jsonTemplates;
+
+        SynthEventRowFactory(
+                long seed,
+                String algo,
+                long fromMs,
+                long toMs,
+                List<String> paramKeys,
+                Map<String, ColumnGenerator> catalog,
+                Map<String, Map<String, Object>> jsonTemplates) {
+            this.seed = seed;
+            this.algo = algo;
+            this.fromMs = fromMs;
+            this.toMs = toMs;
+            this.paramKeys = paramKeys;
+            this.catalog = catalog;
+            this.jsonTemplates = jsonTemplates;
+        }
+
+        @Override
+        public EventRow create(long rowId) {
+            return buildEventRow(rowId, seed, algo, fromMs, toMs, paramKeys, catalog, jsonTemplates);
+        }
     }
 
     public static EventRow buildEventRow(

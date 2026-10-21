@@ -39,8 +39,9 @@ public interface GenerateBackend {
     /** Optional post-write row-count check; return observed count or -1 if skipped. */
     long countRows(String basePath) throws Exception;
 
+    /** Must be Serializable: Spark ships the factory to executors via mapPartitions. */
     @FunctionalInterface
-    interface EventRowFactory {
+    interface EventRowFactory extends java.io.Serializable {
         EventRow create(long rowId);
     }
 
