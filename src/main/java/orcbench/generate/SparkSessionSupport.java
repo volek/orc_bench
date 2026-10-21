@@ -52,20 +52,18 @@ public final class SparkSessionSupport {
         System.out.println("[orc-bench] SparkSession opened for YARN cluster driver");
     }
 
+    /**
+     * Drop the held reference without stopping the session. Stopping SparkContext in a YARN
+     * cluster driver runs ApplicationMaster's shutdown hook while {@code finished} is still
+     * false, so the app is reported as FAILED
+     * ({@code Shutdown hook called before final status was reported}) even when {@code main}
+     * returned successfully. The AM tears the JVM down after {@code finish(SUCCEEDED)}.
+     */
     public static void closeYarnDriver() {
-        SparkSession session = held;
         held = null;
-        if (session == null) {
-            return;
-        }
-        try {
-            session.stop();
-        } catch (Exception ignored) {
-            // The query backend may already have stopped the shared session.
-        }
     }
 
-    static boolean runningInsideYarnCluster() {
+    public static boolean runningInsideYarnCluster() {
         if ("true".equalsIgnoreCase(System.getenv("SPARK_YARN_MODE"))) {
             return true;
         }

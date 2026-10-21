@@ -430,6 +430,7 @@ hdfs dfs -du -h /orc_test/S
 | Много `skipped` LLAP | `llap_daemons_running_verified` / live probe; ожидаемо до зелёного probe |
 | Нет `results/` на submit-ноде | Ожидаемо для cluster mode — см. §7.4; смотреть `yarn logs -applicationId <appId>` |
 | `User did not initialize spark context` / exit 13 | Драйвер завершился без SparkContext. В `yarn logs` должна быть строка `yarnAppId=application_...` и следом `SparkSession opened`. Если `yarnAppId=null`, на узле старый jar |
+| `Shutdown hook called before final status was reported` | Драйвер вызвал `SparkContext.stop()` до `finish(SUCCEEDED)`. Нужен jar, который не останавливает сессию в cluster mode |
 | `client deploy mode is disabled` | Уберите `spark.deploy_mode: client` из `environment.local.yaml`; не передавайте `--deploy-mode client` |
 | `spark-submit` / live Kerberos на laptop | Не запускать live с этого host; локально только `--dry-run-submit` / packaging |
 | Phase not implemented | Все фазы CLI (A) готовы CP1–CP8; live на ноде — CP3–CP9 (B) |

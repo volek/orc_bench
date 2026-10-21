@@ -35,7 +35,10 @@ public final class LiveSparkQueryBackend implements SparkQueryBackend {
      */
     public static LiveSparkQueryBackend create(LoadedConfig cfg, String appName) {
         SparkSession session = createSession(cfg, appName);
-        return new LiveSparkQueryBackend(session, true);
+        // Never stop the session ourselves in cluster mode: SparkContext.stop() races the
+        // ApplicationMaster shutdown hook and marks the app FAILED before SUCCEEDED.
+        boolean owns = !SparkSessionSupport.runningInsideYarnCluster();
+        return new LiveSparkQueryBackend(session, owns);
     }
 
     public static SparkSession createSession(LoadedConfig cfg, String appName) {
