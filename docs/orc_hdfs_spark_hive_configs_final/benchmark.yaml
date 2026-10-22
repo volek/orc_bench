@@ -7,7 +7,7 @@ benchmark:
   sla_mean_latency_ms: 3000
   isolation: one_variable_at_a_time_then_best_combinations
   require_result_equivalence: true
-  hdfs_root: hdfs://orc_test
+  hdfs_root: /orc_test
   generated_hive_ddl: generated/hive-table.sql
   derived_partition_columns:
   - event_date

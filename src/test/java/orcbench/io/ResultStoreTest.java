@@ -43,9 +43,13 @@ class ResultStoreTest {
         System.setProperty("spark.yarn.app.id", "application_test_0001");
         try {
             String dir = ResultStore.resolveResultsDir("results", cfg);
-            assertEquals("hdfs://orc_test/results/sdp-dzo-lt-omlt", dir);
-            assertEquals("hdfs://orc_test/logs/sdp-dzo-lt-omlt", ResultStore.hdfsLogsRoot(cfg));
+            assertEquals("hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt", dir);
+            assertEquals("hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt", ResultStore.hdfsLogsRoot(cfg));
             assertTrue(ResultStore.onHdfs(dir));
+            assertEquals(
+                    "hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt",
+                    ResultStore.resolveResultsDir(
+                            "hdfs://orc_test/results/sdp-dzo-lt-omlt", cfg));
             assertEquals(
                     "hdfs://sdp-dzo-lt-omlt/orc_test/custom",
                     ResultStore.resolveResultsDir("/orc_test/custom", cfg));

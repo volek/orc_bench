@@ -42,8 +42,8 @@ orc_bench_detach_submit() {
     if [[ -n "$app" ]]; then
       echo "[submit] YARN $app"
       echo "[submit] скрипт завершается; приложение на кластере продолжает работу."
-      echo "[submit] результаты: hdfs://orc_test/results/<namenode>/<runId>/"
-      echo "[submit] лог драйвера: hdfs://orc_test/logs/<namenode>/<runId>/driver.log"
+      echo "[submit] результаты: hdfs://<namenode>/orc_test/results/<host>/<runId>/"
+      echo "[submit] лог драйвера: hdfs://<namenode>/orc_test/logs/<host>/<runId>/driver.log"
       return 0
     fi
     if ! kill -0 "$pid" 2>/dev/null; then

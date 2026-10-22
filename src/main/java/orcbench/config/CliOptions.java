@@ -40,7 +40,7 @@ public class CliOptions implements Callable<CliOptions.CliArgs> {
 
     @Option(names = "--results-dir",
             description = "Results directory. On a YARN cluster driver the default "
-                    + "results is rewritten to hdfs://orc_test/results/<namenode>. "
+                    + "results is rewritten to hdfs://<namenode>/orc_test/results/<namenode-host>. "
                     + "Pass an explicit hdfs:// path to override.")
     String resultsDir = "results";
 

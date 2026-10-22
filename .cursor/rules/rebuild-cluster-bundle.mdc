@@ -1,0 +1,14 @@
+---
+description: После изменений приложения пересобирать dist/orc-bench-cluster-bundle.tgz
+alwaysApply: true
+---
+
+# Бандл кластера
+
+Если менялись Java, `conf/`, `scripts/` или документация запуска, в конце задачи пересобери бандл:
+
+```bash
+./scripts/package-for-cluster.sh
+```
+
+Выход по умолчанию: `dist/orc-bench-cluster-bundle.tgz`. Флаг `--with-runbook` не добавляй, пока пользователь явно не попросил. Перед упаковкой jar должен быть свежим (`./scripts/build.sh` или `shadowJar` под JDK 8).

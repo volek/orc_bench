@@ -12,7 +12,7 @@
 #     флаги orcbench.Main только после --;
 #     --dry-run здесь = --dry-run-submit там (печать команды, без submit).
 #   Если --results-dir не задан, run-benchmark подставит
-#   hdfs://orc_test/results/<namenode>.
+#   hdfs://<namenode>/orc_test/results/<host>.
 #
 # Параметры submit (до --):
 #   -h, --help              показать эту справку
@@ -24,6 +24,7 @@
 #   --executor-memory SIZE  память executor, напр. 16g
 #   --principal PRINCIPAL   Kerberos principal
 #   --keytab PATH           путь к keytab
+#   --name TEXT             имя в YARN App Manager (иначе orc-bench <phase> <scale> …)
 #   --dry-run               только напечатать команду и выйти 0
 #   --                      дальше аргументы для orcbench.Main
 #
@@ -66,7 +67,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage ;;
     --) PARSING_MAIN=1; shift ;;
-    --jar|--deploy-mode|--queue|--num-executors|--executor-cores|--executor-memory|--principal|--keytab)
+    --jar|--deploy-mode|--queue|--num-executors|--executor-cores|--executor-memory|--principal|--keytab|--name)
       FORWARD+=("$1" "$2")
       shift 2
       ;;

@@ -36,7 +36,7 @@ class DatasetGeneratorTest {
         assertFalse(result.mocked);
         assertNotNull(result.samples);
         assertFalse(result.samples.partitionDates.isEmpty());
-        assertTrue(result.basePath.startsWith("hdfs://orc_test/S/RAW_ARRAY_BASE"));
+        assertTrue(result.basePath.startsWith("hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE"));
         assertTrue(result.notes.stream().anyMatch(n -> n.contains("dry-run")));
     }
 

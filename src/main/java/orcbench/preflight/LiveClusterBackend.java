@@ -26,7 +26,7 @@ public final class LiveClusterBackend implements PreflightBackend {
         try {
             Configuration conf = new Configuration();
             String dir = workDir == null || workDir.trim().isEmpty()
-                    ? "hdfs://orc_test" : workDir.trim();
+                    ? "/orc_test" : workDir.trim();
             Path work = new Path(dir);
             FileSystem fs;
             if (work.toUri().getScheme() != null) {

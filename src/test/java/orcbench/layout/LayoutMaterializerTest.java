@@ -25,7 +25,7 @@ class LayoutMaterializerTest {
         List<ExperimentInstance> instances = ExperimentExpander.expandPhysical(
                 cfg.benchmark, "S", Collections.singletonList("COMPRESSION"));
         FakeMaterializeBackend fake = new FakeMaterializeBackend();
-        fake.seedBaseline("hdfs://orc_test/S/RAW_ARRAY_BASE", 1024);
+        fake.seedBaseline("hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE", 1024);
 
         MaterializeResult out = LayoutMaterializer.materialize(
                 cfg, "S", instances, true, false, false, Collections.emptyList(), fake);
@@ -43,7 +43,7 @@ class LayoutMaterializerTest {
         List<ExperimentInstance> instances = ExperimentExpander.expandPhysical(
                 cfg.benchmark, "S", Collections.singletonList("COMPRESSION"));
         FakeMaterializeBackend fake = new FakeMaterializeBackend();
-        fake.seedBaseline("hdfs://orc_test/S/RAW_ARRAY_BASE", 128L * 1024L * 1024L);
+        fake.seedBaseline("hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE", 128L * 1024L * 1024L);
 
         MaterializeResult out = LayoutMaterializer.materialize(
                 cfg, "S", instances, false, true, false, Collections.emptyList(), fake);
@@ -77,7 +77,7 @@ class LayoutMaterializerTest {
         List<ExperimentInstance> instances = ExperimentExpander.expandPhysical(
                 cfg.benchmark, "S", Collections.singletonList("STRIPE_SIZE"));
         FakeMaterializeBackend fake = new FakeMaterializeBackend();
-        fake.seedBaseline("hdfs://orc_test/S/RAW_ARRAY_BASE", 64L * 1024L * 1024L);
+        fake.seedBaseline("hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE", 64L * 1024L * 1024L);
 
         // First pass writes markers
         MaterializeResult first = LayoutMaterializer.materialize(
@@ -122,7 +122,7 @@ class LayoutMaterializerTest {
         List<ExperimentInstance> instances = ExperimentExpander.expandPhysical(
                 cfg.benchmark, "S", Arrays.asList("COMPRESSION", "ROW_INDEX"));
         FakeMaterializeBackend fake = new FakeMaterializeBackend();
-        fake.seedBaseline("hdfs://orc_test/S/RAW_ARRAY_BASE", 32L * 1024L * 1024L);
+        fake.seedBaseline("hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE", 32L * 1024L * 1024L);
 
         LayoutMaterializer.materialize(
                 cfg, "S", instances, false, true, false, Collections.emptyList(), fake);
@@ -135,7 +135,7 @@ class LayoutMaterializerTest {
         // Markers cause zero new writes; cleanup still runs
         assertEquals(0, cleaned.written);
         assertTrue(cleaned.cleaned >= 1);
-        assertTrue(fake.pathExists("hdfs://orc_test/S/RAW_ARRAY_BASE"));
+        assertTrue(fake.pathExists("hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE"));
         // At least one ROW_INDEX layout should have been targeted for cleanup
         assertTrue(cleaned.notes.stream().anyMatch(n -> n.contains("cleaned") && n.contains("ROW_INDEX"))
                 || fake.deleted.stream().anyMatch(p -> p.contains("ROW_INDEX")));

@@ -38,7 +38,7 @@ environment:
       supported: null
       mutable_by_runner: false
     data_locality_verifiable: true
-    work_dir: hdfs://orc_test
+    work_dir: /orc_test
     write_verified: true
   yarn:
     resource_manager: omlt-abyss-sdp-namenode-02.opsmon.sbt:8088

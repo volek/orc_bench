@@ -24,6 +24,7 @@
 #   --executor-memory SIZE  память executor, напр. 16g (ORC_BENCH_EXECUTOR_MEMORY)
 #   --principal PRINCIPAL   Kerberos principal (ORC_BENCH_PRINCIPAL / YAML)
 #   --keytab PATH           путь к keytab (ORC_BENCH_KEYTAB / YAML)
+#   --name TEXT             имя в YARN App Manager (иначе orc-bench <phase> <scale> …)
 #   --dry-run-submit        только напечатать строку spark-submit и выйти 0
 #
 # Cluster mode (единственный):
@@ -73,6 +74,7 @@ EXECUTOR_CORES="${ORC_BENCH_EXECUTOR_CORES:-}"
 EXECUTOR_MEMORY="${ORC_BENCH_EXECUTOR_MEMORY:-}"
 PRINCIPAL="${ORC_BENCH_PRINCIPAL:-}"
 KEYTAB="${ORC_BENCH_KEYTAB:-}"
+APP_NAME="${ORC_BENCH_APP_NAME:-}"
 DRY_RUN_SUBMIT=0
 ENV_YAML="${ORC_BENCH_ENV_YAML:-$ROOT/conf/environment.yaml}"
 
@@ -83,8 +85,8 @@ usage() {
   exit 2
 }
 
-# Если --results-dir не задан, подставляем hdfs://orc_test/results/<namenode>.
-# Тот же каталог выбирает Java внутри YARN; здесь путь виден в строке spark-submit.
+# Если --results-dir не задан, подставляем hdfs://<namenode>/orc_test/results/<host>.
+# hdfs://orc_test как authority Hadoop не открывает: в хосте есть «_».
 ensure_hdfs_results_dir() {
   local i
   for ((i = 0; i < ${#APP_ARGS[@]}; i++)); do
@@ -134,6 +136,7 @@ while [[ $# -gt 0 ]]; do
     --executor-memory) EXECUTOR_MEMORY="$2"; shift 2 ;;
     --principal) PRINCIPAL="$2"; shift 2 ;;
     --keytab) KEYTAB="$2"; shift 2 ;;
+    --name) APP_NAME="$2"; shift 2 ;;
     --dry-run-submit) DRY_RUN_SUBMIT=1; shift ;;
     --config|--scale|--phase|--experiments|--engines|--env-override|--results-dir|--keep-layouts|--run-id|--metrics-jsonl)
       APP_ARGS+=("$1" "$2"); shift 2 ;;
@@ -155,6 +158,7 @@ orc_bench_require_jar || exit 1
 orc_bench_require_cluster_mode || exit $?
 
 ensure_hdfs_results_dir
+APP_YARN_NAME="$(orc_bench_yarn_app_name)"
 
 # shellcheck source=lib/cluster-dist.sh
 source "$ROOT/scripts/lib/cluster-dist.sh"
@@ -168,6 +172,7 @@ SUBMIT=(
   --num-executors "$NUM_EXECUTORS"
   --executor-cores "$EXECUTOR_CORES"
   --executor-memory "$EXECUTOR_MEMORY"
+  --name "$APP_YARN_NAME"
   --class orcbench.Main
 )
 
@@ -191,6 +196,7 @@ SUBMIT+=(
 SUBMIT+=("$JAR")
 SUBMIT+=("${APP_ARGS[@]}")
 
+echo "[run-benchmark] yarn name=$APP_YARN_NAME"
 echo "[run-benchmark] deploy_mode=$DEPLOY_MODE queue=$QUEUE jar=$JAR"
 echo "[run-benchmark] app args: ${APP_ARGS[*]:-}"
 

@@ -5,7 +5,7 @@
 # Назначение:
 #   На узле submit после прогона собирает каталог прогона в архив.
 #   Если локального results/<runId> нет, забирает его с HDFS
-#   (hdfs://orc_test/results/<namenode>/<runId>, runbook §7.4).
+#   (hdfs://<namenode>/orc_test/results/<host>/<runId>, runbook).
 #
 # Параметры:
 #   -h, --help            показать эту справку

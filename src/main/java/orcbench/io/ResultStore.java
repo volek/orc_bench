@@ -38,16 +38,41 @@ public final class ResultStore {
     }
 
     /**
+     * {@code hdfs://orc_test/...} нельзя открыть: в хосте есть {@code _},
+     * {@code URI.getHost()} возвращает null, HDFS бросает
+     * {@code Incomplete HDFS URI, no host}. Каталог тот же, authority — nameservice
+     * из конфига: {@code hdfs://sdp-dzo-lt-omlt/orc_test/...}.
+     */
+    public static String qualifyOrcTestUri(String path, String namenodeUri) {
+        if (path == null) {
+            return null;
+        }
+        String p = path.trim();
+        String nn = namenodeUri == null ? "" : stripTrailingSlash(namenodeUri.trim());
+        if (nn.isEmpty()) {
+            return p;
+        }
+        final String broken = "hdfs://orc_test";
+        if (p.equals(broken) || p.startsWith(broken + "/")) {
+            return nn + "/orc_test" + p.substring(broken.length());
+        }
+        if ("/orc_test".equals(p) || p.startsWith("/orc_test/")) {
+            return nn + p;
+        }
+        return p;
+    }
+
+    /**
      * Directory for this run. On a YARN cluster driver the implicit
      * {@code results} directory becomes
-     * {@code hdfs://orc_test/results/<namenode>}.
-     * An explicit {@code hdfs://} path is kept. Local relative paths are kept
-     * for dev hosts and unit tests.
+     * {@code hdfs://<namenode>/orc_test/results/<namenode-host>}.
+     * {@code hdfs://orc_test/...} is rewritten onto the real nameservice.
+     * Local relative paths are kept for dev hosts and unit tests.
      */
     public static String resolveResultsDir(String requested, LoadedConfig cfg) {
         String dir = requested == null ? "" : requested.trim();
         if (isDistributedScheme(dir)) {
-            return stripTrailingSlash(dir);
+            return stripTrailingSlash(qualifyOrcTestUri(dir, namenode(cfg)));
         }
         boolean implicit = dir.isEmpty() || "results".equals(dir);
         if (SparkSessionSupport.runningInsideYarnCluster()) {
@@ -55,23 +80,28 @@ public final class ResultStore {
                 return hdfsResultsRoot(cfg);
             }
             if (dir.startsWith("/")) {
-                String nn = namenode(cfg);
-                if (nn != null && !nn.isEmpty()) {
-                    return stripTrailingSlash(nn) + stripTrailingSlash(dir);
-                }
+                return stripTrailingSlash(qualifyOrcTestUri(dir, namenode(cfg)));
             }
         }
         return dir.isEmpty() ? "results" : dir;
     }
 
-    /** {@code hdfs://orc_test/results/<namenode>} — metrics, SUMMARY, CSV, TSV. */
+    /** {@code hdfs://<namenode>/orc_test/results/<host>} — metrics, SUMMARY, CSV, TSV. */
     public static String hdfsResultsRoot(LoadedConfig cfg) {
-        return "hdfs://orc_test/results/" + namenodeHost(namenode(cfg));
+        return benchRoot(cfg) + "/results/" + namenodeHost(namenode(cfg));
     }
 
-    /** {@code hdfs://orc_test/logs/<namenode>} — driver and submit-script logs. */
+    /** {@code hdfs://<namenode>/orc_test/logs/<host>} — driver and submit-script logs. */
     public static String hdfsLogsRoot(LoadedConfig cfg) {
-        return "hdfs://orc_test/logs/" + namenodeHost(namenode(cfg));
+        return benchRoot(cfg) + "/logs/" + namenodeHost(namenode(cfg));
+    }
+
+    private static String benchRoot(LoadedConfig cfg) {
+        String nn = namenode(cfg);
+        if (nn == null || nn.isEmpty()) {
+            return "hdfs://orc_test";
+        }
+        return stripTrailingSlash(nn) + "/orc_test";
     }
 
     public static String child(String dir, String... parts) {

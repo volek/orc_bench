@@ -111,42 +111,58 @@ orc_bench_enable_logging() {
   exit "$rc"
 }
 
-# Хост из namenode_uri (hdfs://sdp-dzo-lt-omlt → sdp-dzo-lt-omlt). Пусто, если неизвестен.
-orc_bench_hdfs_namenode_host() {
+# Полный namenode_uri (hdfs://sdp-dzo-lt-omlt). Пусто, если неизвестен.
+orc_bench_hdfs_namenode_uri() {
   local root="${1:-}"
   if [[ -z "$root" ]]; then
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   fi
   local yaml="$root/conf/environment.yaml"
-  local nn host
+  [[ -f "$yaml" ]] || return 0
+  local nn
   nn="$(orc_bench_yaml_value namenode_uri "$yaml")"
   [[ -n "$nn" ]] || return 0
-  nn="${nn%/}"
+  printf '%s\n' "${nn%/}"
+}
+
+# Хост из namenode_uri (hdfs://sdp-dzo-lt-omlt → sdp-dzo-lt-omlt). Пусто, если неизвестен.
+# hdfs://orc_test как authority нельзя: «_» в хосте, URI.getHost() = null.
+orc_bench_hdfs_namenode_host() {
+  local nn host
+  nn="$(orc_bench_hdfs_namenode_uri "${1:-}" || true)"
+  [[ -n "$nn" ]] || return 0
   host="${nn#*://}"
   host="${host%%/*}"
   [[ -n "$host" ]] || return 0
   printf '%s\n' "$host"
 }
 
-# hdfs://orc_test/results/<namenode>
-orc_bench_hdfs_results_root() {
-  local root="${1:-}"
-  if [[ -z "$root" ]]; then
-    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  fi
-  local host
-  host="$(orc_bench_hdfs_namenode_host "$root" || true)"
-  [[ -n "$host" ]] || return 0
-  printf 'hdfs://orc_test/results/%s\n' "$host"
+# hdfs://<namenode>/orc_test
+orc_bench_hdfs_bench_root() {
+  local nn
+  nn="$(orc_bench_hdfs_namenode_uri "${1:-}" || true)"
+  [[ -n "$nn" ]] || return 0
+  printf '%s/orc_test\n' "$nn"
 }
 
-# hdfs://orc_test/logs/<namenode>
+# hdfs://<namenode>/orc_test/results/<host>
+orc_bench_hdfs_results_root() {
+  local root="${1:-}"
+  local nn host
+  nn="$(orc_bench_hdfs_namenode_uri "$root" || true)"
+  host="$(orc_bench_hdfs_namenode_host "$root" || true)"
+  [[ -n "$nn" && -n "$host" ]] || return 0
+  printf '%s/orc_test/results/%s\n' "$nn" "$host"
+}
+
+# hdfs://<namenode>/orc_test/logs/<host>
 orc_bench_hdfs_logs_root() {
   local root="${1:-}"
-  local host
+  local nn host
+  nn="$(orc_bench_hdfs_namenode_uri "$root" || true)"
   host="$(orc_bench_hdfs_namenode_host "$root" || true)"
-  [[ -n "$host" ]] || return 0
-  printf 'hdfs://orc_test/logs/%s\n' "$host"
+  [[ -n "$nn" && -n "$host" ]] || return 0
+  printf '%s/orc_test/logs/%s\n' "$nn" "$host"
 }
 
 orc_bench_hdfs_log_dest() {

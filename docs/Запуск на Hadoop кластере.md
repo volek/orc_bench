@@ -14,27 +14,27 @@
 
 ## Куда что пишется
 
-Имена ниже — для текущего `conf/environment.yaml` (`namenode_uri: hdfs://sdp-dzo-lt-omlt`). Хост в путях результатов и логов берётся из этого URI.
+Имена ниже — для текущего `conf/environment.yaml` (`namenode_uri: hdfs://sdp-dzo-lt-omlt`). Хост в путях результатов и логов берётся из этого URI. Каталог данных — `/orc_test` на этом nameservice. Адрес `hdfs://orc_test/...` Hadoop не открывает: символ `_` в имени хоста даёт пустой host (`Incomplete HDFS URI, no host`).
 
 | Что | Путь |
 |---|---|
-| Базовый ORC, scale S | `hdfs://orc_test/S/RAW_ARRAY_BASE/` |
-| Справочники и манифест | `hdfs://orc_test/S/refs/`, `hdfs://orc_test/S/manifest/` |
-| Layout’ы materialize | `hdfs://orc_test/S/<эксперимент>_<вариант>/` |
-| Маркеры «layout уже записан» | `hdfs://orc_test/state/S__<эксперимент>__<вариант>.done` |
-| Отчёты прогона | `hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/` |
-| Лог драйвера (растёт, пока жив YARN) | `hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log` |
-| Лог скрипта submit | локально `logs/<скрипт>-YYYYMMDD-HHMMSS.log`, копия `hdfs://orc_test/logs/sdp-dzo-lt-omlt/<имя файла>` |
+| Базовый ORC, scale S | `hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE/` |
+| Справочники и манифест | `hdfs://sdp-dzo-lt-omlt/orc_test/S/refs/`, `hdfs://sdp-dzo-lt-omlt/orc_test/S/manifest/` |
+| Layout’ы materialize | `hdfs://sdp-dzo-lt-omlt/orc_test/S/<эксперимент>_<вариант>/` |
+| Маркеры «layout уже записан» | `hdfs://sdp-dzo-lt-omlt/orc_test/state/S__<эксперимент>__<вариант>.done` |
+| Отчёты прогона | `hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/` |
+| Лог драйвера (растёт, пока жив YARN) | `hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log` |
+| Лог скрипта submit | локально `logs/<скрипт>-YYYYMMDD-HHMMSS.log`, копия `hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<имя файла>` |
 
-`hdfs_root` и `hdfs.work_dir` в конфиге равны `hdfs://orc_test`. Каталог отчётов по умолчанию скрипт подставляет сам (`hdfs://orc_test/results/sdp-dzo-lt-omlt`). Флаг `--results-dir` нужен, только если отчёты надо положить в другое место.
+В `benchmark.yaml` поле `hdfs_root` и в `environment.yaml` поле `work_dir` равны `/orc_test`. На кластере приложение дописывает nameservice и получает `hdfs://sdp-dzo-lt-omlt/orc_test`. Каталог отчётов по умолчанию скрипт подставляет сам (`hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt`). Флаг `--results-dir` нужен, только если отчёты надо положить в другое место. Явный `hdfs://orc_test/...` драйвер переписывает на nameservice сам.
 
 Данные generate и отчёты — разные деревья. Очистка одного дерева другое не трогает.
 
-Живой запуск отвязан от терминала. Скрипт печатает `application_<id>` и завершается; ApplicationMaster на YARN продолжает работу после обрыва SSH. `runId` появляется уже внутри драйвера. Его каталог виден так:
+Живой запуск отвязан от терминала. Скрипт печатает `application_<id>` и завершается; ApplicationMaster на YARN продолжает работу после обрыва SSH. В App Manager колонка Name — имя этой фазы, не класс `orcbench.Main`: `orc-bench <фаза> <масштаб>`, а если переданы — движки и список экспериментов. Пример прогона: `orc-bench run S spark ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION`. Своё имя задаётся `--name` или `ORC_BENCH_APP_NAME`. `runId` появляется уже внутри драйвера. Его каталог виден так:
 
 ```bash
-hdfs dfs -ls hdfs://orc_test/logs/sdp-dzo-lt-omlt
-hdfs dfs -ls hdfs://orc_test/results/sdp-dzo-lt-omlt
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt
 ```
 
 Свежий подкаталог и есть `<runId>`. В начале `driver.log` есть строка `[orc-bench] resolved resultsDir=… runId=…`.
@@ -123,12 +123,12 @@ keytab_path:      ~/keytab/pvm-omltp-sdp.keytab
 
 ## Шаг 3. Очистка данных на HDFS
 
-Перед **первым** прогоном на пустом `hdfs://orc_test` удалять нечего. Проверка:
+Перед **первым** прогоном на пустом `hdfs://sdp-dzo-lt-omlt/orc_test` удалять нечего. Проверка:
 
 ```bash
-hdfs dfs -ls hdfs://orc_test
-hdfs dfs -du -h hdfs://orc_test/S
-hdfs dfs -ls hdfs://orc_test/state
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test
+hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test/S
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/state
 ```
 
 Очистка нужна, когда данные уже есть и их надо записать заново. Удаление уходит в корзину HDFS. Флаг `-skipTrash` добавляйте после того, как `hdfs dfs -ls` показал ровно те пути, которые собираетесь стереть.
@@ -140,29 +140,29 @@ Generate перезаписывает `RAW_ARRAY_BASE`, `refs/` и `manifest/` (
 Перед новым generate, если базовый набор надо пересобрать вместе с layout’ами:
 
 ```bash
-hdfs dfs -rm -r hdfs://orc_test/S
-hdfs dfs -rm -r hdfs://orc_test/state/S__*
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/S
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/state/S__*
 ```
 
-Каталоги `hdfs://orc_test/results/` и `hdfs://orc_test/logs/` этой командой не затрагиваются.
+Каталоги `hdfs://sdp-dzo-lt-omlt/orc_test/results/` и `hdfs://sdp-dzo-lt-omlt/orc_test/logs/` этой командой не затрагиваются.
 
 ### 3.2. Переписать один layout
 
 Маркер и каталог layout’а удаляют парой. Иначе materialize либо пропустит запись (маркер на месте), либо оставит старые файлы.
 
 ```bash
-hdfs dfs -ls hdfs://orc_test/S
-hdfs dfs -ls hdfs://orc_test/state
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/state
 
-hdfs dfs -rm -r hdfs://orc_test/S/<каталог_layout>
-hdfs dfs -rm hdfs://orc_test/state/S__<эксперимент>__<вариант>.done
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/S/<каталог_layout>
+hdfs dfs -rm hdfs://sdp-dzo-lt-omlt/orc_test/state/S__<эксперимент>__<вариант>.done
 ```
 
 `RAW_ARRAY_BASE`, `refs/` и `manifest/` при этом оставляют.
 
 ### 3.3. Снять лишние layout’ы и оставить базовый ORC
 
-Флаг materialize `--cleanup-layouts` удаляет под `hdfs://orc_test/<scale>/` каталоги перезаписи, кроме `RAW_ARRAY_BASE`, `refs/`, `manifest/` и имён из `--keep-layouts`. Маркеры в `hdfs://orc_test/state/` он не удаляет. После такой очистки следующий materialize снова пропустит эксперимент, пока соответствующий `*.done` лежит на месте. Чтобы layout записался заново, удалите и маркер (§3.2).
+Флаг materialize `--cleanup-layouts` удаляет под `hdfs://sdp-dzo-lt-omlt/orc_test/<scale>/` каталоги перезаписи, кроме `RAW_ARRAY_BASE`, `refs/`, `manifest/` и имён из `--keep-layouts`. Маркеры в `hdfs://sdp-dzo-lt-omlt/orc_test/state/` он не удаляет. После такой очистки следующий materialize снова пропустит эксперимент, пока соответствующий `*.done` лежит на месте. Чтобы layout записался заново, удалите и маркер (§3.2).
 
 Пример: оставить layout’ы `MINMAX_SORT`, остальные rewrite-каталоги scale S удалить в конце materialize:
 
@@ -177,11 +177,11 @@ hdfs dfs -rm hdfs://orc_test/state/S__<эксперимент>__<вариант>
 На данные бенчмарка это не влияет. Удаляйте конкретный прогон, когда каталог больше не нужен:
 
 ```bash
-hdfs dfs -rm -r hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>
-hdfs dfs -rm -r hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>
 ```
 
-Лог скрипта submit лежит файлом рядом с каталогами `<runId>`, не внутри них: `hdfs dfs -ls hdfs://orc_test/logs/sdp-dzo-lt-omlt`.
+Лог скрипта submit лежит файлом рядом с каталогами `<runId>`, не внутри них: `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt`.
 
 ---
 
@@ -193,7 +193,7 @@ hdfs dfs -rm -r hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>
 ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
 ```
 
-Затем живые пробы (запись в `hdfs://orc_test`, Kerberos, Hive JDBC):
+Затем живые пробы (запись в `hdfs://sdp-dzo-lt-omlt/orc_test`, Kerberos, Hive JDBC):
 
 ```bash
 ./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
@@ -208,12 +208,12 @@ yarn application -status application_<id>
 Дождитесь `SUCCEEDED`. Отчёт preflight — свой `<runId>`:
 
 ```text
-hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/capabilities.tsv
-hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/preflight-notes.txt
-hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/skipped.tsv
+hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/capabilities.tsv
+hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/preflight-notes.txt
+hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/skipped.tsv
 ```
 
-Ожидаемые пропуски по контракту: `HIVE_MATERIALIZED_VIEW`, `HDFS_CACHE.centralized`. LLAP до зелёного probe остаётся observational. Дальше идите, когда preflight завершился `SUCCEEDED` и в `preflight-notes.txt` нет отказа записи в `hdfs://orc_test`.
+Ожидаемые пропуски по контракту: `HIVE_MATERIALIZED_VIEW`, `HDFS_CACHE.centralized`. LLAP до зелёного probe остаётся observational. Дальше идите, когда preflight завершился `SUCCEEDED` и в `preflight-notes.txt` нет отказа записи в `hdfs://sdp-dzo-lt-omlt/orc_test`.
 
 ---
 
@@ -229,15 +229,15 @@ hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/skipped.tsv
 Дождитесь `SUCCEEDED`. Проверка объёма:
 
 ```bash
-hdfs dfs -ls hdfs://orc_test/S/RAW_ARRAY_BASE
-hdfs dfs -ls hdfs://orc_test/S/refs
-hdfs dfs -ls hdfs://orc_test/S/manifest
-hdfs dfs -du -h hdfs://orc_test/S
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/refs
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/manifest
+hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test/S
 ```
 
-Ориентир: логический объём S = 100 GB, порядка 89 млн строк. Каталог `RAW_ARRAY_BASE` должен быть непустым. Лог драйвера этой фазы: `hdfs dfs -tail hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log`. В конце ожидается `[orc-bench] OK — generate`.
+Ориентир: логический объём S = 100 GB, порядка 89 млн строк. Каталог `RAW_ARRAY_BASE` должен быть непустым. Лог драйвера этой фазы: `hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log`. В конце ожидается `[orc-bench] OK — generate`.
 
-Повторный generate без удаления `hdfs://orc_test/S` перезаписывает базу, справочники и манифест. Layout’ы и маркеры остаются прежними — для нового materialize выполните §3.1 или §3.2.
+Повторный generate без удаления `hdfs://sdp-dzo-lt-omlt/orc_test/S` перезаписывает базу, справочники и манифест. Layout’ы и маркеры остаются прежними — для нового materialize выполните §3.1 или §3.2.
 
 ---
 
@@ -253,11 +253,11 @@ hdfs dfs -du -h hdfs://orc_test/S
 Проверка:
 
 ```bash
-hdfs dfs -ls hdfs://orc_test/S
-hdfs dfs -ls hdfs://orc_test/state
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/state
 ```
 
-Рядом с `RAW_ARRAY_BASE` появляются каталоги экспериментов. В `hdfs://orc_test/state/` — файлы `S__MINMAX_SORT__…done`, `S__BLOOM_USER__…done`, `S__PARTITIONING__…done`. Повторный materialize с теми же маркерами новые ORC не пишет: в `driver.log` строка `[materialize] skip (marker)`. Чтобы записать layout заново, удалите пару «каталог + маркер» (§3.2) и запустите эту команду снова.
+Рядом с `RAW_ARRAY_BASE` появляются каталоги экспериментов. В `hdfs://sdp-dzo-lt-omlt/orc_test/state/` — файлы `S__MINMAX_SORT__…done`, `S__BLOOM_USER__…done`, `S__PARTITIONING__…done`. Повторный materialize с теми же маркерами новые ORC не пишет: в `driver.log` строка `[materialize] skip (marker)`. Чтобы записать layout заново, удалите пару «каталог + маркер» (§3.2) и запустите эту команду снова.
 
 Эквивалент без обёртки пилота:
 
@@ -286,20 +286,20 @@ hdfs dfs -ls hdfs://orc_test/state
 Сразу запишите `application_<id>` из вывода. Найдите `<runId>`:
 
 ```bash
-hdfs dfs -ls hdfs://orc_test/logs/sdp-dzo-lt-omlt
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt
 ```
 
 Дальше, пока приложение в состоянии `RUNNING`:
 
 ```bash
 yarn application -status application_<id>
-hdfs dfs -tail -f hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log
+hdfs dfs -tail -f hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log
 ```
 
 `metrics.jsonl` появляется после первой завершённой ячейки и дописывается по одной ячейке:
 
 ```bash
-hdfs dfs -tail hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/metrics.jsonl
+hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/metrics.jsonl
 ```
 
 В логе драйвера на каждую ячейку есть `[run] spark <эксперимент>/<вариант>` и `[run] appended N rows to …/metrics.jsonl`. Успешный конец фазы:
@@ -339,7 +339,7 @@ Hive Tez / LLAP в Pilot S не входят. Отдельный прогон, �
   --env-override conf/environment.local.yaml
 ```
 
-После `SUCCEEDED` в `hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/`:
+После `SUCCEEDED` в `hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/`:
 
 | Файл | Когда появляется |
 |---|---|
@@ -352,8 +352,8 @@ Hive Tez / LLAP в Pilot S не входят. Отдельный прогон, �
 Посмотреть с узла, не забирая каталог целиком:
 
 ```bash
-hdfs dfs -cat hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/SUMMARY.txt
-hdfs dfs -tail hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/summary.csv
+hdfs dfs -cat hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/SUMMARY.txt
+hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/summary.csv
 ```
 
 `SUMMARY.txt` содержит порог SLA 3000 ms, долю успехов и блок **BEST_ORC** (`experimentId`, `layoutPath`, `meanP50Ms`). Hive-рекомендация ZSTD не выбирается (кодек ORC 1.5.6 на Hive).
@@ -387,14 +387,14 @@ tar -tzf results-<runId>.tgz
 
 ```bash
 mkdir -p results
-hdfs dfs -get hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId> results/
+hdfs dfs -get hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId> results/
 ```
 
 Лог драйвера в каталог результатов не входит. Его забирают отдельно:
 
 ```bash
 hdfs dfs -get \
-  hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log \
+  hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log \
   driver-<runId>.log
 ```
 
@@ -456,7 +456,7 @@ hdfs dfs -get \
 | `fetch-results.sh` | Узел | `hdfs dfs -get` каталога прогона и упаковка в `.tgz` |
 | `kinit-bench.sh` | Узел, по желанию | `kinit -kt` из `runner_principal` / `keytab_path`. Основной путь этого runbook на него не опирается |
 | `lib/common.sh` | библиотека | YAML, jar, sizing, CRLF, шапка `--help` |
-| `lib/logging.sh` | библиотека | Tee в `logs/` и копия в `hdfs://orc_test/logs/<namenode>/` |
+| `lib/logging.sh` | библиотека | Tee в `logs/` и копия в `hdfs://sdp-dzo-lt-omlt/orc_test/logs/<namenode>/` |
 | `lib/cluster-dist.sh` | библиотека | Локальные `--env-override` и `--metrics-jsonl` → `spark-submit --files` |
 | `lib/detach-submit.sh` | библиотека | `setsid`/`nohup`, выход после `application_<id>` |
 
@@ -479,6 +479,7 @@ spark-submit \
   --num-executors 10 \
   --executor-cores 4 \
   --executor-memory 16g \
+  --name "orc-bench preflight S" \
   --principal pvm-omltp-sdp@OPSMON.SBT \
   --keytab "$HOME/keytab/pvm-omltp-sdp.keytab" \
   --conf spark.yarn.submit.waitAppCompletion=false \
@@ -487,7 +488,7 @@ spark-submit \
   ./orc-bench-0.1.0-SNAPSHOT-all.jar \
   --config conf --scale S --phase preflight \
   --env-override environment.local.yaml \
-  --results-dir hdfs://orc_test/results/sdp-dzo-lt-omlt
+  --results-dir hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt
 ```
 
 `--conf spark.yarn.submit.waitAppCompletion=false` нужен, чтобы клиент submit вернулся после постановки приложения в YARN.
@@ -501,8 +502,8 @@ spark-submit \
 | `application_<id>` есть, SSH уже закрыт | `yarn application -status application_<id>` и `hdfs dfs -tail` лога драйвера. Submit-сессия приложению не нужна |
 | Долго нет `metrics.jsonl` | Файл создаётся после первой ячейки. Смотрите `driver.log`: строка `[run] spark …` означает, что ячейка ещё считается |
 | Materialize сразу `skip (marker)` | Маркер уже есть. Для перезаписи — §3.2 |
-| Generate прошёл, materialize пишет, что нет `RAW_ARRAY_BASE` | Проверьте `hdfs dfs -ls hdfs://orc_test/S/RAW_ARRAY_BASE`. Путь именно `hdfs://orc_test`, не `hdfs://sdp-dzo-lt-omlt/orc_test` |
-| `Permission denied` на `hdfs://orc_test` | Права principal’а: `hdfs dfs -ls hdfs://orc_test` и пробная запись preflight `--live` |
+| Generate прошёл, materialize пишет, что нет `RAW_ARRAY_BASE` | Проверьте `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE` |
+| `Permission denied` на `hdfs://sdp-dzo-lt-omlt/orc_test` | Права principal’а: `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test` и пробная запись preflight `--live` |
 | `client deploy mode is disabled` | В `environment.local.yaml` стоит `deploy_mode: cluster`, флаг `--deploy-mode client` не передаётся |
 | `User did not initialize spark context` | На узле старый jar. Заново скопируйте `orc-bench-0.1.0-SNAPSHOT-all.jar` и перезапустите фазу |
 | `UnsupportedClassVersion` | `java -version` на узле — 1.8.x, `JAVA_HOME` указывает на JDK 8 |
@@ -541,7 +542,7 @@ spark-submit \
 | materialize, время | ________ |
 | run, время и p50 | ________ |
 | GC / spill / OOM | ________________ |
-| Каталог отчёта | `hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/` |
+| Каталог отчёта | `hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/` |
 | Skipped / failed | ________________ |
 
 ### 12.3. Что записать в `environment.local.yaml`
@@ -563,7 +564,7 @@ spark-submit \
 | Отдельная калибровка L = 1024 GB | yes / no / later — ________ |
 | Concurrency 25 и 50 на S | только при свободной ёмкости очереди |
 
-M и L калибруют отдельно. Числа S на них сами не переносятся. Перед M или L повторите шаги 3–9 со `--scale M` или `--scale L` и своей очисткой `hdfs://orc_test/M` или `hdfs://orc_test/L` (маркеры `M__*` / `L__*`). Обёртка `run-pilot-s.sh` всегда ставит `--scale S`; для M/L вызывайте `run-benchmark.sh --scale M`.
+M и L калибруют отдельно. Числа S на них сами не переносятся. Перед M или L повторите шаги 3–9 со `--scale M` или `--scale L` и своей очисткой `hdfs://sdp-dzo-lt-omlt/orc_test/M` или `hdfs://sdp-dzo-lt-omlt/orc_test/L` (маркеры `M__*` / `L__*`). Обёртка `run-pilot-s.sh` всегда ставит `--scale S`; для M/L вызывайте `run-benchmark.sh --scale M`.
 
 ---
 
@@ -579,7 +580,7 @@ M и L калибруют отдельно. Числа S на них сами н
 | `--phase` | `all` | `preflight`, `generate`, `materialize`, `run`, `report`, `final`, `all` |
 | `--experiments` | все | Список id через запятую. Пилот подставляет свой |
 | `--engines` | `spark,hive_tez,hive_llap` | Пилот на `run` подставляет `spark` |
-| `--results-dir` | `hdfs://orc_test/results/sdp-dzo-lt-omlt` на YARN | Корень отчётов. `<runId>` добавляет приложение |
+| `--results-dir` | `hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt` на YARN | Корень отчётов. `<runId>` добавляет приложение |
 | `--run-id` | новый id | Для `report` и `final` — id прогона шага 7 |
 | `--metrics-jsonl` | — | Явный файл метрик вместо `<results>/<runId>/metrics.jsonl` |
 | `--dry-run` | выкл | План без записи HDFS и без замеров |
@@ -588,4 +589,4 @@ M и L калибруют отдельно. Числа S на них сами н
 | `--mock-generate`, `--mock-materialize`, `--mock-run` | выкл | Память процесса, для локальных тестов |
 | `--help`, `--version` | — | Справка |
 
-Флаги обёртки (в `Main` не попадают): `--jar`, `--deploy-mode`, `--queue`, `--num-executors`, `--executor-cores`, `--executor-memory`, `--principal`, `--keytab`, `--dry-run-submit`. Переменные с тем же смыслом: `ORC_BENCH_JAR`, `ORC_BENCH_DEPLOY_MODE`, `ORC_BENCH_QUEUE`, `ORC_BENCH_NUM_EXECUTORS`, `ORC_BENCH_EXECUTOR_CORES`, `ORC_BENCH_EXECUTOR_MEMORY`, `ORC_BENCH_PRINCIPAL`, `ORC_BENCH_KEYTAB`, `ORC_BENCH_ENV_YAML`, `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`.
+Флаги обёртки (в `Main` не попадают): `--jar`, `--deploy-mode`, `--queue`, `--num-executors`, `--executor-cores`, `--executor-memory`, `--principal`, `--keytab`, `--name`, `--dry-run-submit`. Переменные с тем же смыслом: `ORC_BENCH_JAR`, `ORC_BENCH_DEPLOY_MODE`, `ORC_BENCH_QUEUE`, `ORC_BENCH_NUM_EXECUTORS`, `ORC_BENCH_EXECUTOR_CORES`, `ORC_BENCH_EXECUTOR_MEMORY`, `ORC_BENCH_PRINCIPAL`, `ORC_BENCH_KEYTAB`, `ORC_BENCH_APP_NAME`, `ORC_BENCH_ENV_YAML`, `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`. `--name` — подпись в YARN App Manager; без него скрипт собирает `orc-bench <фаза> <масштаб>`.

@@ -152,6 +152,50 @@ orc_bench_require_spark_submit() {
   return 1
 }
 
+# Имя в колонке Name у YARN App Manager.
+# Без него Spark подставляет главный класс (orcbench.Main).
+# Берёт --phase / --scale / --engines / --experiments из APP_ARGS.
+# Явное APP_NAME (флаг --name) не перезаписывает.
+orc_bench_yarn_app_name() {
+  if [[ -n "${APP_NAME:-}" ]]; then
+    printf '%s\n' "$APP_NAME"
+    return 0
+  fi
+  local phase="" scale="" engines="" experiments="" i=0 n arg val
+  n=${#APP_ARGS[@]}
+  while [[ "$i" -lt "$n" ]]; do
+    arg="${APP_ARGS[$i]}"
+    case "$arg" in
+      --phase|--scale|--engines|--experiments)
+        if [[ $((i + 1)) -ge "$n" ]]; then
+          break
+        fi
+        val="${APP_ARGS[$((i + 1))]}"
+        case "$arg" in
+          --phase) phase="$val" ;;
+          --scale) scale="$val" ;;
+          --engines) engines="$val" ;;
+          --experiments) experiments="$val" ;;
+        esac
+        i=$((i + 2))
+        continue
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  phase="${phase:-all}"
+  scale="${scale:-S}"
+  local name="orc-bench ${phase} ${scale}"
+  if [[ -n "$engines" ]]; then
+    name+=" ${engines}"
+  fi
+  if [[ -n "$experiments" ]]; then
+    name+=" ${experiments}"
+  fi
+  name="${name//$'\n'/ }"
+  printf '%s\n' "$name"
+}
+
 # Список CLUSTER_FILES через запятую для spark-submit --files.
 orc_bench_cluster_files_csv() {
   local files_csv="" f
