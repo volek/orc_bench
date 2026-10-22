@@ -2,6 +2,7 @@ package orcbench.engine.spark;
 
 import orcbench.engine.QueryTemplate;
 import orcbench.engine.QueryTemplate.BoundQuery;
+import orcbench.engine.ResultDigest;
 import orcbench.io.ResultStore;
 import orcbench.engine.spark.SparkQueryBackend.QueryExecResult;
 import orcbench.generate.SparkSessionSupport;
@@ -13,8 +14,6 @@ import orcbench.model.Models.QuerySampleManifest;
 import orcbench.model.Models.RunPhaseResult;
 import orcbench.model.Models.RunResult;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -296,24 +295,13 @@ public final class SparkQueryRunner {
         System.out.println("[run] appended " + rows.size() + " rows to " + jsonl);
     }
 
-    /** SHA-256 of sorted canonical row strings; first 16 hex chars. */
+    /**
+     * Order-independent fingerprint of canonical row strings; first 16 hex chars.
+     * Same sum as {@link ResultDigest}, so a live executor-side fold matches
+     * {@code hashRows} of the same rows.
+     */
     public static String hashRows(String[] parts) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            String[] sorted = parts == null ? new String[0] : parts.clone();
-            Arrays.sort(sorted);
-            for (String p : sorted) {
-                md.update((p == null ? "" : p).getBytes(StandardCharsets.UTF_8));
-            }
-            byte[] dig = md.digest();
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < Math.min(8, dig.length); i++) {
-                sb.append(String.format(Locale.ROOT, "%02x", dig[i]));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        return ResultDigest.hashRows(parts);
     }
 
     /**
@@ -398,10 +386,11 @@ public final class SparkQueryRunner {
         long t0 = System.nanoTime();
         try {
             QueryExecResult exec = backend.execute(bq.sql);
-            String hash = hashRows(exec.rowStrings);
+            String hash = exec.resultHash != null ? exec.resultHash : hashRows(exec.rowStrings);
+            long nrows = exec.logicalRows >= 0 ? exec.logicalRows : exec.rowStrings.length;
             long latency = (System.nanoTime() - t0) / 1_000_000L;
             RunResult r = ok(runId, inst, bq.queryId, repetition, warmup, concurrency,
-                    latency, hash, exec.rowStrings.length, orcBytes, plan);
+                    latency, hash, nrows, orcBytes, plan);
             r.hdfsBytesRead = exec.hdfsBytesRead;
             return r;
         } catch (Exception ex) {

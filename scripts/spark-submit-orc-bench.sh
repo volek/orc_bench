@@ -22,6 +22,7 @@
 #   --num-executors N       число executor'ов
 #   --executor-cores N      ядра на executor
 #   --executor-memory SIZE  память executor, напр. 16g
+#   --driver-memory SIZE    память драйвера (иначе 4g)
 #   --principal PRINCIPAL   Kerberos principal
 #   --keytab PATH           путь к keytab
 #   --name TEXT             имя в YARN App Manager (иначе orc-bench <phase> <scale> …)
@@ -67,7 +68,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage ;;
     --) PARSING_MAIN=1; shift ;;
-    --jar|--deploy-mode|--queue|--num-executors|--executor-cores|--executor-memory|--principal|--keytab|--name)
+    --jar|--deploy-mode|--queue|--num-executors|--executor-cores|--executor-memory|--driver-memory|--principal|--keytab|--name)
       FORWARD+=("$1" "$2")
       shift 2
       ;;

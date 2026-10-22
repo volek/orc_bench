@@ -22,6 +22,7 @@
 #   --num-executors N       число executor'ов (ORC_BENCH_NUM_EXECUTORS / YAML)
 #   --executor-cores N      ядра на executor (ORC_BENCH_EXECUTOR_CORES / YAML)
 #   --executor-memory SIZE  память executor, напр. 16g (ORC_BENCH_EXECUTOR_MEMORY)
+#   --driver-memory SIZE    память драйвера, по умолчанию 4g (ORC_BENCH_DRIVER_MEMORY)
 #   --principal PRINCIPAL   Kerberos principal (ORC_BENCH_PRINCIPAL / YAML)
 #   --keytab PATH           путь к keytab (ORC_BENCH_KEYTAB / YAML)
 #   --name TEXT             имя в YARN App Manager (иначе orc-bench <phase> <scale> …)
@@ -35,7 +36,7 @@
 # Переменные окружения (те же смыслы, что флаги выше):
 #   ORC_BENCH_JAR, ORC_BENCH_MASTER, ORC_BENCH_DEPLOY_MODE, ORC_BENCH_QUEUE,
 #   ORC_BENCH_NUM_EXECUTORS, ORC_BENCH_EXECUTOR_CORES, ORC_BENCH_EXECUTOR_MEMORY,
-#   ORC_BENCH_PRINCIPAL, ORC_BENCH_KEYTAB, ORC_BENCH_ENV_YAML
+#   ORC_BENCH_DRIVER_MEMORY, ORC_BENCH_PRINCIPAL, ORC_BENCH_KEYTAB, ORC_BENCH_ENV_YAML
 #   (YAML по умолчанию: conf/environment.yaml)
 #
 # Логирование (stdout+stderr → файл и консоль через tee):
@@ -72,6 +73,7 @@ QUEUE="${ORC_BENCH_QUEUE:-}"
 NUM_EXECUTORS="${ORC_BENCH_NUM_EXECUTORS:-}"
 EXECUTOR_CORES="${ORC_BENCH_EXECUTOR_CORES:-}"
 EXECUTOR_MEMORY="${ORC_BENCH_EXECUTOR_MEMORY:-}"
+DRIVER_MEMORY="${ORC_BENCH_DRIVER_MEMORY:-4g}"
 PRINCIPAL="${ORC_BENCH_PRINCIPAL:-}"
 KEYTAB="${ORC_BENCH_KEYTAB:-}"
 APP_NAME="${ORC_BENCH_APP_NAME:-}"
@@ -134,6 +136,7 @@ while [[ $# -gt 0 ]]; do
     --num-executors) NUM_EXECUTORS="$2"; shift 2 ;;
     --executor-cores) EXECUTOR_CORES="$2"; shift 2 ;;
     --executor-memory) EXECUTOR_MEMORY="$2"; shift 2 ;;
+    --driver-memory) DRIVER_MEMORY="$2"; shift 2 ;;
     --principal) PRINCIPAL="$2"; shift 2 ;;
     --keytab) KEYTAB="$2"; shift 2 ;;
     --name) APP_NAME="$2"; shift 2 ;;
@@ -172,6 +175,7 @@ SUBMIT=(
   --num-executors "$NUM_EXECUTORS"
   --executor-cores "$EXECUTOR_CORES"
   --executor-memory "$EXECUTOR_MEMORY"
+  --driver-memory "$DRIVER_MEMORY"
   --name "$APP_YARN_NAME"
   --class orcbench.Main
 )

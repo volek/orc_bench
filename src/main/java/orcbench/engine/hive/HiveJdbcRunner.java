@@ -398,7 +398,7 @@ public final class HiveJdbcRunner {
     }
 
     /**
-     * Same SHA-256 sorted-row hash as Spark ({@code result_equivalence.scope}).
+     * Same order-independent fingerprint as Spark ({@code result_equivalence.scope}).
      */
     public static String hashRows(String[] parts) {
         return SparkQueryRunner.hashRows(parts);
@@ -444,10 +444,11 @@ public final class HiveJdbcRunner {
         long t0 = System.nanoTime();
         try {
             QueryExecResult exec = backend.execute(bq.sql);
-            String hash = hashRows(exec.rowStrings);
+            String hash = exec.resultHash != null ? exec.resultHash : hashRows(exec.rowStrings);
+            long nrows = exec.logicalRows >= 0 ? exec.logicalRows : exec.rowStrings.length;
             long latency = (System.nanoTime() - t0) / 1_000_000L;
             RunResult r = ok(runId, inst, bq.queryId, repetition, warmup, concurrency,
-                    latency, hash, exec.rowStrings.length, orcBytes, plan);
+                    latency, hash, nrows, orcBytes, plan);
             r.hdfsBytesRead = exec.hdfsBytesRead;
             if (inst.llap) {
                 // LLAP cold/warm remain observational until cluster probe confirms readiness.

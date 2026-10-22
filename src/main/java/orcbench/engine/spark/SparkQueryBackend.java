@@ -22,8 +22,9 @@ public interface SparkQueryBackend extends AutoCloseable {
     Long estimateOrcBytes(String layoutPath);
 
     /**
-     * Execute SQL and return canonical row strings ({@code col|col|…}) plus
-     * optional HDFS bytes read if the backend can observe them.
+     * Execute SQL. Fake backends return canonical row strings. The live backend
+     * returns only {@code logicalRows} and {@code resultHash} computed on the
+     * executors, so a wide result is not collected on the driver.
      */
     QueryExecResult execute(String sql) throws Exception;
 
@@ -34,10 +35,21 @@ public interface SparkQueryBackend extends AutoCloseable {
     final class QueryExecResult {
         public final String[] rowStrings;
         public final Long hdfsBytesRead;
+        /** Row count of the SQL result. {@code -1} means {@code rowStrings.length}. */
+        public final long logicalRows;
+        /** Precomputed fingerprint. {@code null} means hash {@code rowStrings}. */
+        public final String resultHash;
 
         public QueryExecResult(String[] rowStrings, Long hdfsBytesRead) {
+            this(rowStrings, hdfsBytesRead, -1L, null);
+        }
+
+        public QueryExecResult(String[] rowStrings, Long hdfsBytesRead,
+                                long logicalRows, String resultHash) {
             this.rowStrings = rowStrings == null ? new String[0] : rowStrings;
             this.hdfsBytesRead = hdfsBytesRead;
+            this.logicalRows = logicalRows;
+            this.resultHash = resultHash;
         }
     }
 }

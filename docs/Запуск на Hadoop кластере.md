@@ -479,6 +479,7 @@ spark-submit \
   --num-executors 10 \
   --executor-cores 4 \
   --executor-memory 16g \
+  --driver-memory 4g \
   --name "orc-bench preflight S" \
   --principal pvm-omltp-sdp@OPSMON.SBT \
   --keytab "$HOME/keytab/pvm-omltp-sdp.keytab" \
@@ -501,6 +502,7 @@ spark-submit \
 |---|---|
 | `application_<id>` есть, SSH уже закрыт | `yarn application -status application_<id>` и `hdfs dfs -tail` лога драйвера. Submit-сессия приложению не нужна |
 | Долго нет `metrics.jsonl` | Файл создаётся после первой ячейки. Смотрите `driver.log`: строка `[run] spark …` означает, что ячейка ещё считается |
+| `Java heap space` / `TaskResultLost` на Q07 | Старый jar вызывает `collect()` всего результата на драйвер. Нужен jar, где число строк и хеш считаются на экзекуторах. Память драйвера в submit — 4g (`--driver-memory`) |
 | Materialize сразу `skip (marker)` | Маркер уже есть. Для перезаписи — §3.2 |
 | Generate прошёл, materialize пишет, что нет `RAW_ARRAY_BASE` | Проверьте `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE` |
 | `Permission denied` на `hdfs://sdp-dzo-lt-omlt/orc_test` | Права principal’а: `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test` и пробная запись preflight `--live` |
@@ -589,4 +591,4 @@ M и L калибруют отдельно. Числа S на них сами н
 | `--mock-generate`, `--mock-materialize`, `--mock-run` | выкл | Память процесса, для локальных тестов |
 | `--help`, `--version` | — | Справка |
 
-Флаги обёртки (в `Main` не попадают): `--jar`, `--deploy-mode`, `--queue`, `--num-executors`, `--executor-cores`, `--executor-memory`, `--principal`, `--keytab`, `--name`, `--dry-run-submit`. Переменные с тем же смыслом: `ORC_BENCH_JAR`, `ORC_BENCH_DEPLOY_MODE`, `ORC_BENCH_QUEUE`, `ORC_BENCH_NUM_EXECUTORS`, `ORC_BENCH_EXECUTOR_CORES`, `ORC_BENCH_EXECUTOR_MEMORY`, `ORC_BENCH_PRINCIPAL`, `ORC_BENCH_KEYTAB`, `ORC_BENCH_APP_NAME`, `ORC_BENCH_ENV_YAML`, `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`. `--name` — подпись в YARN App Manager; без него скрипт собирает `orc-bench <фаза> <масштаб>`.
+Флаги обёртки (в `Main` не попадают): `--jar`, `--deploy-mode`, `--queue`, `--num-executors`, `--executor-cores`, `--executor-memory`, `--driver-memory`, `--principal`, `--keytab`, `--name`, `--dry-run-submit`. Переменные с тем же смыслом: `ORC_BENCH_JAR`, `ORC_BENCH_DEPLOY_MODE`, `ORC_BENCH_QUEUE`, `ORC_BENCH_NUM_EXECUTORS`, `ORC_BENCH_EXECUTOR_CORES`, `ORC_BENCH_EXECUTOR_MEMORY`, `ORC_BENCH_DRIVER_MEMORY`, `ORC_BENCH_PRINCIPAL`, `ORC_BENCH_KEYTAB`, `ORC_BENCH_APP_NAME`, `ORC_BENCH_ENV_YAML`, `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`. `--name` — подпись в YARN App Manager; без него скрипт собирает `orc-bench <фаза> <масштаб>`. `--driver-memory` по умолчанию `4g`.

@@ -1,15 +1,22 @@
 package orcbench.engine.spark;
 
+import orcbench.engine.ResultDigest;
 import orcbench.generate.SparkSessionSupport;
 import orcbench.model.Models.LoadedConfig;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.function.FlatMapFunction;
+import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
+import java.io.Serializable;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -143,15 +150,62 @@ public final class LiveSparkQueryBackend implements SparkQueryBackend {
         }
     }
 
+    /**
+     * Count and fingerprint on the executors. {@code collect()} of Q07
+     * ({@code SELECT *} / narrow projection of LOGON) materializes every
+     * matching row on the driver and exhausts the default 1g heap
+     * ({@code TaskResultLost} / {@code Java heap space}).
+     */
     @Override
     public QueryExecResult execute(String sql) throws Exception {
         Dataset<Row> df = spark.sql(sql);
-        Row[] rows = (Row[]) df.collect();
-        String[] parts = new String[rows.length];
-        for (int i = 0; i < rows.length; i++) {
-            parts[i] = rows[i].mkString("|");
+        JavaRDD<ResultDigest> partials = df.javaRDD().mapPartitions(new FoldPartition());
+        ResultDigest total = partials.fold(new ResultDigest(), new MergeDigests());
+        return new QueryExecResult(new String[0], null, total.count(), total.hashHex());
+    }
+
+    /** One digest per partition. Static so the closure does not capture the backend. */
+    private static final class FoldPartition
+            implements FlatMapFunction<Iterator<Row>, ResultDigest>, Serializable {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public Iterator<ResultDigest> call(Iterator<Row> rows) {
+            ResultDigest digest = new ResultDigest();
+            while (rows.hasNext()) {
+                digest.add(canonicalRow(rows.next()));
+            }
+            return Collections.singleton(digest).iterator();
         }
-        return new QueryExecResult(parts, null);
+    }
+
+    private static final class MergeDigests
+            implements Function2<ResultDigest, ResultDigest, ResultDigest>, Serializable {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public ResultDigest call(ResultDigest left, ResultDigest right) {
+            ResultDigest out = left == null ? new ResultDigest() : left.copy();
+            out.merge(right);
+            return out;
+        }
+    }
+
+    /** Same canonical row as Hive JDBC: {@code null} → {@code \N}, columns joined by {@code |}. */
+    static String canonicalRow(Row row) {
+        StringBuilder sb = new StringBuilder();
+        int n = row == null ? 0 : row.length();
+        for (int i = 0; i < n; i++) {
+            if (i > 0) {
+                sb.append('|');
+            }
+            if (row.isNullAt(i)) {
+                sb.append("\\N");
+            } else {
+                sb.append(String.valueOf(row.get(i)));
+            }
+        }
+        return sb.toString();
     }
 
     @Override

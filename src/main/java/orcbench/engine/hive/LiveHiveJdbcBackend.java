@@ -1,5 +1,6 @@
 package orcbench.engine.hive;
 
+import orcbench.engine.ResultDigest;
 import orcbench.model.Models.HiveEnv;
 import orcbench.model.Models.LoadedConfig;
 
@@ -120,14 +121,24 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         return null;
     }
 
+    /**
+     * Stream the result. Buffering every row (Q07 on scale S) exhausts the
+     * driver the same way Spark {@code collect()} does. The fingerprint matches
+     * {@link orcbench.engine.spark.SparkQueryRunner#hashRows}.
+     */
     @Override
     public QueryExecResult execute(String sql) throws Exception {
         Statement st = connection.createStatement();
         try {
             ResultSet rs = st.executeQuery(sql);
             try {
-                List<String> rows = readAll(rs);
-                return new QueryExecResult(rows.toArray(new String[0]), null);
+                ResultDigest digest = new ResultDigest();
+                ResultSetMetaData meta = rs.getMetaData();
+                int cols = meta.getColumnCount();
+                while (rs.next()) {
+                    digest.add(canonicalRow(rs, cols));
+                }
+                return new QueryExecResult(new String[0], null, digest.count(), digest.hashHex());
             } finally {
                 rs.close();
             }
@@ -183,20 +194,24 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         int cols = meta.getColumnCount();
         List<String> out = new ArrayList<String>();
         while (rs.next()) {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 1; i <= cols; i++) {
-                if (i > 1) {
-                    sb.append('|');
-                }
-                Object v = rs.getObject(i);
-                if (v == null || rs.wasNull()) {
-                    sb.append("\\N");
-                } else {
-                    sb.append(v.toString());
-                }
-            }
-            out.add(sb.toString());
+            out.add(canonicalRow(rs, cols));
         }
         return out;
+    }
+
+    static String canonicalRow(ResultSet rs, int cols) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i <= cols; i++) {
+            if (i > 1) {
+                sb.append('|');
+            }
+            Object v = rs.getObject(i);
+            if (v == null || rs.wasNull()) {
+                sb.append("\\N");
+            } else {
+                sb.append(v.toString());
+            }
+        }
+        return sb.toString();
     }
 }
