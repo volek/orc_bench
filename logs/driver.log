@@ -1,0 +1,164 @@
+[orc-bench] driver log: hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-22T13-26-38.981Z_8ef78dee/driver.log
+[orc-bench]   hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-22T13-26-38.981Z_8ef78dee/driver.log
+[orc-bench] driver spark.master=yarn deployMode=cluster yarnAppId=application_1792408590717_0027 SPARK_YARN_MODE=null
+[orc-bench] SparkSession opened for YARN cluster driver
+[orc-bench] NOTE: live run requires spark-submit / Hive JDBC on a Hadoop cluster node (YARN + HDFS layouts + HS2). Local hosts should use --dry-run or --mock-run.
+[run] §1 Spark lever coverage in plan: {spark.sql.orc.enableVectorizedReader=true, spark.sql.adaptive.enabled=true, spark.sql.optimizer.dynamicPartitionPruning.enabled=true, spark.sql.cbo.enabled=false, spark.sql.autoBroadcastJoinThreshold=false, spark.sql.orc.impl=true, spark.sql.orc.enableNestedColumnVectorizedReader=true, spark.sql.orc.filterPushdown=true}
+[run] spark cells=16 dryRun=false mock=false concurrencySelected=[1, 5]
+[run] spark ORC_COLUMN_PRUNING/query_only
+Exception in thread "task-result-getter-0" Exception in thread "task-result-getter-1" java.lang.OutOfMemoryError: Java heap space
+	at java.lang.reflect.Array.newArray(Native Method)
+	at java.lang.reflect.Array.newInstance(Array.java:75)
+	at java.io.ObjectInputStream.readArray(ObjectInputStream.java:2056)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1654)
+	at java.io.ObjectInputStream.defaultReadFields(ObjectInputStream.java:2404)
+	at java.io.ObjectInputStream.readSerialData(ObjectInputStream.java:2328)
+	at java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:2186)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1666)
+	at java.io.ObjectInputStream.readArray(ObjectInputStream.java:2092)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1654)
+	at java.io.ObjectInputStream.readObject(ObjectInputStream.java:502)
+	at java.io.ObjectInputStream.readObject(ObjectInputStream.java:460)
+	at org.apache.spark.serializer.JavaDeserializationStream.readObject(JavaSerializer.scala:76)
+	at org.apache.spark.serializer.JavaSerializerInstance.deserialize(JavaSerializer.scala:109)
+	at org.apache.spark.scheduler.DirectTaskResult.value(TaskResult.scala:103)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.$anonfun$run$1(TaskResultGetter.scala:100)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3$$Lambda$2901/1028602389.apply$mcV$sp(Unknown Source)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at org.apache.spark.util.Utils$.logUncaughtExceptions(Utils.scala:2019)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.run(TaskResultGetter.scala:63)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+java.lang.OutOfMemoryError: Java heap space
+	at java.lang.reflect.Array.newArray(Native Method)
+	at java.lang.reflect.Array.newInstance(Array.java:75)
+	at java.io.ObjectInputStream.readArray(ObjectInputStream.java:2056)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1654)
+	at java.io.ObjectInputStream.defaultReadFields(ObjectInputStream.java:2404)
+	at java.io.ObjectInputStream.readSerialData(ObjectInputStream.java:2328)
+	at java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:2186)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1666)
+	at java.io.ObjectInputStream.readArray(ObjectInputStream.java:2092)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1654)
+	at java.io.ObjectInputStream.readObject(ObjectInputStream.java:502)
+	at java.io.ObjectInputStream.readObject(ObjectInputStream.java:460)
+	at org.apache.spark.serializer.JavaDeserializationStream.readObject(JavaSerializer.scala:76)
+	at org.apache.spark.serializer.JavaSerializerInstance.deserialize(JavaSerializer.scala:109)
+	at org.apache.spark.scheduler.DirectTaskResult.value(TaskResult.scala:103)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.$anonfun$run$1(TaskResultGetter.scala:100)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3$$Lambda$2901/1028602389.apply$mcV$sp(Unknown Source)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at org.apache.spark.util.Utils$.logUncaughtExceptions(Utils.scala:2019)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.run(TaskResultGetter.scala:63)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+Exception in thread "task-result-getter-3" Exception in thread "task-result-getter-6" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-4" java.lang.OutOfMemoryError: Java heap space
+java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-8" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-2" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-9" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-5" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-10" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-12" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-7" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-14" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-11" java.lang.OutOfMemoryError: Java heap space
+Exception in thread "task-result-getter-15" java.lang.OutOfMemoryError: GC overhead limit exceeded
+Exception in thread "spark-listener-group-eventLog" java.lang.OutOfMemoryError: GC overhead limit exceeded
+Exception in thread "task-result-getter-16" Exception in thread "task-result-getter-18" java.lang.Error: java.lang.InterruptedException
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1155)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+Caused by: java.lang.InterruptedException
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedInterruptibly(AbstractQueuedSynchronizer.java:998)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1304)
+	at scala.concurrent.impl.Promise$DefaultPromise.tryAwait(Promise.scala:242)
+	at scala.concurrent.impl.Promise$DefaultPromise.ready(Promise.scala:258)
+	at scala.concurrent.impl.Promise$DefaultPromise.result(Promise.scala:263)
+	at org.apache.spark.util.ThreadUtils$.awaitResult(ThreadUtils.scala:293)
+	at org.apache.spark.network.BlockTransferService.fetchBlockSync(BlockTransferService.scala:103)
+	at org.apache.spark.storage.BlockManager.fetchRemoteManagedBuffer(BlockManager.scala:1119)
+	at org.apache.spark.storage.BlockManager.$anonfun$getRemoteBlock$8(BlockManager.scala:1063)
+	at scala.Option.orElse(Option.scala:447)
+	at org.apache.spark.storage.BlockManager.getRemoteBlock(BlockManager.scala:1063)
+	at org.apache.spark.storage.BlockManager.getRemoteBytes(BlockManager.scala:1201)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.$anonfun$run$1(TaskResultGetter.scala:88)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at org.apache.spark.util.Utils$.logUncaughtExceptions(Utils.scala:2019)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.run(TaskResultGetter.scala:63)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	... 2 more
+Exception in thread "task-result-getter-17" Exception in thread "task-result-getter-13" java.lang.Error: java.lang.InterruptedException
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1155)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+Caused by: java.lang.InterruptedException
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedInterruptibly(AbstractQueuedSynchronizer.java:998)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1304)
+	at scala.concurrent.impl.Promise$DefaultPromise.tryAwait(Promise.scala:242)
+	at scala.concurrent.impl.Promise$DefaultPromise.ready(Promise.scala:258)
+	at scala.concurrent.impl.Promise$DefaultPromise.result(Promise.scala:263)
+	at org.apache.spark.util.ThreadUtils$.awaitResult(ThreadUtils.scala:293)
+	at org.apache.spark.network.BlockTransferService.fetchBlockSync(BlockTransferService.scala:103)
+	at org.apache.spark.storage.BlockManager.fetchRemoteManagedBuffer(BlockManager.scala:1119)
+	at org.apache.spark.storage.BlockManager.$anonfun$getRemoteBlock$8(BlockManager.scala:1063)
+	at scala.Option.orElse(Option.scala:447)
+	at org.apache.spark.storage.BlockManager.getRemoteBlock(BlockManager.scala:1063)
+	at org.apache.spark.storage.BlockManager.getRemoteBytes(BlockManager.scala:1201)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.$anonfun$run$1(TaskResultGetter.scala:88)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at org.apache.spark.util.Utils$.logUncaughtExceptions(Utils.scala:2019)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.run(TaskResultGetter.scala:63)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	... 2 more
+java.lang.Error: java.lang.InterruptedException
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1155)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+Caused by: java.lang.InterruptedException
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedInterruptibly(AbstractQueuedSynchronizer.java:998)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1304)
+	at scala.concurrent.impl.Promise$DefaultPromise.tryAwait(Promise.scala:242)
+	at scala.concurrent.impl.Promise$DefaultPromise.ready(Promise.scala:258)
+	at scala.concurrent.impl.Promise$DefaultPromise.result(Promise.scala:263)
+	at org.apache.spark.util.ThreadUtils$.awaitResult(ThreadUtils.scala:293)
+	at org.apache.spark.network.BlockTransferService.fetchBlockSync(BlockTransferService.scala:103)
+	at org.apache.spark.storage.BlockManager.fetchRemoteManagedBuffer(BlockManager.scala:1119)
+	at org.apache.spark.storage.BlockManager.$anonfun$getRemoteBlock$8(BlockManager.scala:1063)
+	at scala.Option.orElse(Option.scala:447)
+	at org.apache.spark.storage.BlockManager.getRemoteBlock(BlockManager.scala:1063)
+	at org.apache.spark.storage.BlockManager.getRemoteBytes(BlockManager.scala:1201)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.$anonfun$run$1(TaskResultGetter.scala:88)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at org.apache.spark.util.Utils$.logUncaughtExceptions(Utils.scala:2019)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.run(TaskResultGetter.scala:63)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	... 2 more
+java.lang.Error: java.lang.InterruptedException
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1155)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+Caused by: java.lang.InterruptedException
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedInterruptibly(AbstractQueuedSynchronizer.java:998)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1304)
+	at scala.concurrent.impl.Promise$DefaultPromise.tryAwait(Promise.scala:242)
+	at scala.concurrent.impl.Promise$DefaultPromise.ready(Promise.scala:258)
+	at scala.concurrent.impl.Promise$DefaultPromise.result(Promise.scala:263)
+	at org.apache.spark.util.ThreadUtils$.awaitResult(ThreadUtils.scala:293)
+	at org.apache.spark.network.BlockTransferService.fetchBlockSync(BlockTransferService.scala:103)
+	at org.apache.spark.storage.BlockManager.fetchRemoteManagedBuffer(BlockManager.scala:1119)
+	at org.apache.spark.storage.BlockManager.$anonfun$getRemoteBlock$8(BlockManager.scala:1063)
+	at scala.Option.orElse(Option.scala:447)
+	at org.apache.spark.storage.BlockManager.getRemoteBlock(BlockManager.scala:1063)
+	at org.apache.spark.storage.BlockManager.getRemoteBytes(BlockManager.scala:1201)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.$anonfun$run$1(TaskResultGetter.scala:88)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at org.apache.spark.util.Utils$.logUncaughtExceptions(Utils.scala:2019)
+	at org.apache.spark.scheduler.TaskResultGetter$$anon$3.run(TaskResultGetter.scala:63)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	... 2 more
+[run] appended 70 rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-22T13-26-38.981Z_8ef78dee/metrics.jsonl
+[run] spark ORC_PUSHDOWN/pushdown=false
