@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
     --jar) JAR="$2"; shift 2 ;;
     --with-runbook) WITH_RUNBOOK=1; shift ;;
     -h|--help)
-      sed -n '2,30p' "$0" | sed 's/^# \?//'
+      orc_bench_print_header "$0"
       exit 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -68,22 +68,24 @@ BUNDLE="$STAGE/orc-bench"
 mkdir -p "$BUNDLE/scripts/lib" "$BUNDLE/conf"
 
 cp -a "$JAR" "$BUNDLE/orc-bench-0.1.0-SNAPSHOT-all.jar"
-# conf without local overlays / secrets
+# conf/ без локальных overlay и секретов.
 cp -a "$ROOT/conf/." "$BUNDLE/conf/"
 rm -f "$BUNDLE/conf/environment.local.yaml" 2>/dev/null || true
-# Defense in depth: never ship keytabs / credential blobs if present under conf/
+# На всякий случай: не класть в бандл keytab и файлы учётных данных из conf/.
 find "$BUNDLE" \( -name '*.keytab' -o -name '*.ktab' -o -name '*.pem' \
   -o -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \) -type f -delete 2>/dev/null || true
 
-# Shared helpers (sourced by scripts/*.sh)
-for lib in logging.sh cluster-dist.sh; do
-  if [[ -f "$ROOT/scripts/lib/$lib" ]]; then
-    tr -d '\r' < "$ROOT/scripts/lib/$lib" > "$BUNDLE/scripts/lib/$lib"
-    chmod 644 "$BUNDLE/scripts/lib/$lib"
-  fi
+# Общие helper'ы. Копируем весь lib/, чтобы новый файл (common.sh, detach-submit.sh)
+# не выпал из бандла из-за устаревшего списка.
+shopt -s nullglob
+for lib in "$ROOT"/scripts/lib/*.sh; do
+  name="$(basename "$lib")"
+  tr -d '\r' < "$lib" > "$BUNDLE/scripts/lib/$name"
+  chmod 644 "$BUNDLE/scripts/lib/$name"
 done
+shopt -u nullglob
 
-# Cluster-side + packaging scripts only (skip local JDK wrapper noise is OK to include)
+# Скрипты узла и упаковки. with-jdk8.sh тоже кладём: на ноде им пользуются для JDK 8.
 for s in \
   run-benchmark.sh \
   run-preflight.sh \
@@ -96,8 +98,8 @@ for s in \
   with-jdk8.sh
 do
   if [[ -f "$ROOT/scripts/$s" ]]; then
-    # Strip CR so Windows/autocrlf checkouts cannot poison the node bundle
-    # (CRLF → cryptic ": No such file or directory" on exec).
+    # Убираем CR: checkout с Windows CRLF на узле даёт
+    # «: No such file or directory» при запуске.
     tr -d '\r' < "$ROOT/scripts/$s" > "$BUNDLE/scripts/$s"
     chmod +x "$BUNDLE/scripts/$s"
   fi

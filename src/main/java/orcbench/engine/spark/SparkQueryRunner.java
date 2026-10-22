@@ -2,6 +2,7 @@ package orcbench.engine.spark;
 
 import orcbench.engine.QueryTemplate;
 import orcbench.engine.QueryTemplate.BoundQuery;
+import orcbench.io.ResultStore;
 import orcbench.engine.spark.SparkQueryBackend.QueryExecResult;
 import orcbench.generate.SparkSessionSupport;
 import orcbench.metrics.MetricsStore;
@@ -13,8 +14,6 @@ import orcbench.model.Models.RunPhaseResult;
 import orcbench.model.Models.RunResult;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -143,12 +142,18 @@ public final class SparkQueryRunner {
                     }
                 }
             }
+            String jsonl = null;
+            if (resultsDir != null && !resultsDir.isEmpty()) {
+                jsonl = ResultStore.child(resultsDir, runId, "metrics.jsonl");
+                result.metricsJsonlPath = jsonl;
+            }
 
             for (ExperimentInstance inst : sparkCells) {
                 System.out.println("[run] spark " + inst.experimentId + "/" + inst.variantLabel);
                 List<RunResult> one = runExperiment(
                         sink, cfg, inst, effectiveSamples, runId, null);
                 result.results.addAll(one);
+                appendMetrics(jsonl, one);
                 if (inst.skipReason != null
                         || (!one.isEmpty() && "skipped".equals(one.get(0).status))) {
                     result.experimentsSkipped++;
@@ -159,18 +164,16 @@ public final class SparkQueryRunner {
                 if ("SPARK_BASE".equals(inst.experimentId) && !extraConc.isEmpty()) {
                     for (Integer conc : extraConc) {
                         System.out.println("[run] concurrency spark=" + conc);
-                        result.results.addAll(runExperiment(
-                                sink, cfg, inst, effectiveSamples, runId, conc));
+                        List<RunResult> extra = runExperiment(
+                                sink, cfg, inst, effectiveSamples, runId, conc);
+                        result.results.addAll(extra);
+                        appendMetrics(jsonl, extra);
                     }
                 }
             }
             result.attempts = result.results.size();
-
-            if (resultsDir != null && !resultsDir.isEmpty()) {
-                Path jsonl = Paths.get(resultsDir, runId, "metrics.jsonl");
-                MetricsStore.appendJsonl(jsonl.toString(), result.results);
-                result.metricsJsonlPath = jsonl.toString();
-                result.notes.add("wrote metrics.jsonl (" + result.attempts + " attempts)");
+            if (jsonl != null) {
+                result.notes.add("wrote metrics.jsonl (" + result.attempts + " attempts) " + jsonl);
             }
         } finally {
             if (closeSink && sink != null) {
@@ -283,6 +286,14 @@ public final class SparkQueryRunner {
             }
         }
         return results;
+    }
+
+    private static void appendMetrics(String jsonl, List<RunResult> rows) throws Exception {
+        if (jsonl == null || rows == null || rows.isEmpty()) {
+            return;
+        }
+        MetricsStore.appendJsonl(jsonl, rows);
+        System.out.println("[run] appended " + rows.size() + " rows to " + jsonl);
     }
 
     /** SHA-256 of sorted canonical row strings; first 16 hex chars. */

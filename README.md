@@ -4,7 +4,7 @@
 
 **Статус:** чекпоинты 0–10 **(A)** — локальная реализация — выполнены (фазы CLI до `report`/`final`, скрипты кластерного запуска, packaging, runbook, Pilot S: `conf/pilot-s.yaml`, `scripts/run-pilot-s.sh`). Live-валидация на кластере **(B)** для CP3–CP10 — только на ноде Hadoop. Локальный трек (A) по плану завершён.
 
-> **С этой машины разработки нельзя выполнять действия на Hadoop-кластере** (live Kerberos, HDFS `/orc_test`, `spark-submit` на YARN, Hive JDBC, реальные generate/run). Здесь — код, unit/mock-тесты, упаковка, `--dry-run-submit` у скриптов. Кластерные шаги — только на ноде. См. план §7.0 и runbook.
+> **С этой машины разработки нельзя выполнять действия на Hadoop-кластере** (live Kerberos, HDFS `hdfs://orc_test`, `spark-submit` на YARN, Hive JDBC, реальные generate/run). Здесь — код, unit/mock-тесты, упаковка, `--dry-run-submit` у скриптов. Кластерные шаги — только на ноде. См. план §7.0 и runbook.
 
 ## Документация
 
@@ -12,7 +12,7 @@
 |---|---|
 | [`docs/План разработки тестового приложения ORC HDFS Spark Hive.md`](docs/План%20разработки%20тестового%20приложения%20ORC%20HDFS%20Spark%20Hive.md) | План и gated-чекпоинты (A локально / B на кластере) |
 | [`docs/Запуск на Hadoop кластере.md`](docs/Запуск%20на%20Hadoop%20кластере.md) | **Операционный runbook** — копирование, фазы, CLI, spark-submit, отчёты, сбор results |
-| [`docs/orc_hdfs_spark_hive_configs_final/`](docs/orc_hdfs_spark_hive_configs_final/) | Контракт конфигов (`hdfs_root=/orc_test`, очередь `default`) |
+| [`docs/orc_hdfs_spark_hive_configs_final/`](docs/orc_hdfs_spark_hive_configs_final/) | Контракт конфигов (`hdfs_root=hdfs://orc_test`, очередь `default`) |
 
 ## Сборка (локально / CI)
 
@@ -55,7 +55,7 @@ java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main \
 ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
 ./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
 
-# Live generate → /orc_test/S/RAW_ARRAY_BASE/ (+ refs/, manifest/)
+# Live generate → hdfs://orc_test/S/RAW_ARRAY_BASE/ (+ refs/, manifest/)
 ./scripts/run-benchmark.sh \
   --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
   --scale S --phase generate \

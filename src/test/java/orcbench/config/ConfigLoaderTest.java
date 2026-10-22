@@ -43,7 +43,7 @@ class ConfigLoaderTest {
 
         assertEquals("audit_orc_hdfs_spark_hive", cfg.benchmark.benchmark.id);
         assertEquals(2, cfg.benchmark.benchmark.specVersion);
-        assertEquals("/orc_test", cfg.benchmark.benchmark.hdfsRoot);
+        assertEquals("hdfs://orc_test", cfg.benchmark.benchmark.hdfsRoot);
         assertEquals("RAW_ARRAY_BASE", cfg.benchmark.physicalBaseline.id);
         assertEquals("SNAPPY", cfg.benchmark.physicalBaseline.orc.compression);
         assertEquals(10000, cfg.benchmark.physicalBaseline.orc.rowIndexStride);

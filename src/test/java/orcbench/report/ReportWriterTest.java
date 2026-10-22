@@ -39,7 +39,7 @@ class ReportWriterTest {
         cap.capabilities.put("hive_jdbc", true);
         cap.notes.add("fixture");
 
-        Path dir = ReportWriter.writeRun(
+        String dir = ReportWriter.writeRun(
                 tmp.toString(),
                 "run1",
                 "S",
@@ -55,13 +55,13 @@ class ReportWriterTest {
                 3000L,
                 true);
 
-        assertTrue(Files.exists(dir.resolve("metrics.jsonl")));
-        assertTrue(Files.exists(dir.resolve("summary.csv")));
-        assertTrue(Files.exists(dir.resolve("skipped.tsv")));
-        assertTrue(Files.exists(dir.resolve("SUMMARY.txt")));
-        assertTrue(Files.exists(dir.resolve("final_comparison.tsv")));
+        assertTrue(Files.exists(Paths.get(dir, "metrics.jsonl")));
+        assertTrue(Files.exists(Paths.get(dir, "summary.csv")));
+        assertTrue(Files.exists(Paths.get(dir, "skipped.tsv")));
+        assertTrue(Files.exists(Paths.get(dir, "SUMMARY.txt")));
+        assertTrue(Files.exists(Paths.get(dir, "final_comparison.tsv")));
 
-        String summary = new String(Files.readAllBytes(dir.resolve("SUMMARY.txt")), StandardCharsets.UTF_8);
+        String summary = new String(Files.readAllBytes(Paths.get(dir, "SUMMARY.txt")), StandardCharsets.UTF_8);
         assertTrue(summary.contains("runId=run1"));
         assertTrue(summary.contains("scale=S"));
         assertTrue(summary.contains("bestOrc.experimentId="));
@@ -70,12 +70,12 @@ class ReportWriterTest {
         assertTrue(summary.contains("hive_jdbc=true"));
         assertTrue(summary.contains("finalComparisonCells="));
 
-        String csv = new String(Files.readAllBytes(dir.resolve("summary.csv")), StandardCharsets.UTF_8);
+        String csv = new String(Files.readAllBytes(Paths.get(dir, "summary.csv")), StandardCharsets.UTF_8);
         assertTrue(csv.contains("avgMs"));
         assertTrue(csv.contains("slaSuccessRate"));
         assertTrue(csv.contains("slaPass"));
 
-        String skipped = new String(Files.readAllBytes(dir.resolve("skipped.tsv")), StandardCharsets.UTF_8);
+        String skipped = new String(Files.readAllBytes(Paths.get(dir, "skipped.tsv")), StandardCharsets.UTF_8);
         assertTrue(skipped.contains("E2"));
     }
 

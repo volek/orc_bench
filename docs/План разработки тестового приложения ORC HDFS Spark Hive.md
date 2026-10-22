@@ -29,7 +29,7 @@
 - Потребление **всех** файлов `orc_hdfs_spark_hive_configs_final` как первичного контракта.
 - Покрытие физических и engine-экспериментов из `benchmark.yaml`, соответствующих карте §1.
 - Kerberos-аутентификация (principal/keytab из `environment.yaml`).
-- Локальные отчёты на ноде + layout’ы под `hdfs_root` (`/orc_test`).
+- Локальные отчёты на ноде + layout’ы под `hdfs_root` (`hdfs://orc_test`).
 - Greenfield-реализация Gradle Java-проекта по структуре §6.
 
 ### 1.3. Out of scope / non-goals
@@ -129,7 +129,7 @@
 
 - Java **1.8**, Spark **3.2.1**, Hive **3.1.2**, Hadoop **3.1.3**, Tez **0.9.1**, Scala **2.12**.
 - Kerberos: `pvm-omltp-sdp@OPSMON.SBT`, keytab `~/keytab/pvm-omltp-sdp.keytab`.
-- HDFS: `hdfs://sdp-dzo-lt-omlt`, replication **2**, block **128 MiB**, work/root **`/orc_test`**.
+- HDFS: nameservice `hdfs://sdp-dzo-lt-omlt`, replication **2**, block **128 MiB**, данные бенчмарка **`hdfs://orc_test`**.
 - YARN: queue **`default`**, RM HA (namenode-01/02); Effective_Max_Capacity (ориентир первого запуска): **memory 221184 MB (~216 GiB), vCores 67**; **6 datanodes**.
 - Spark: `master: yarn`, **`deploy_mode: cluster` только**. Скрипты запуска отклоняют `client`.
 - Executor sizing: стартовые значения для первого пробного запуска — см. §8.1; **финальный sizing — после первого trial run**.
@@ -140,7 +140,7 @@
 
 **Benchmark (`benchmark.yaml`):**
 
-- `hdfs_root: /orc_test`, SLA **3000 ms**, `warmup_per_query: 5`, `measured_per_query: 30`.
+- `hdfs_root: hdfs://orc_test`, SLA **3000 ms**, `warmup_per_query: 5`, `measured_per_query: 30`.
 - Concurrency: **не фиксированный MVP-набор**. В YAML могут быть кандидаты уровней; фактические уровни concurrency **настраиваются per dataset scale с учётом ёмкости кластера** (см. §8.2). Не запускать тяжёлые уровни «вслепую» на L без capacity-оценки.
 - Physical baseline `RAW_ARRAY_BASE`: SNAPPY, stripe 64 MiB, stride 10000, без bloom/sort/partitions.
 - Hive DB `bench`, таблицы `bench.events__{scale}__{experiment}__{variant}`.
@@ -188,9 +188,10 @@ orc_bench/
 │   ├── build.sh                     # local/CI: shadowJar
 │   ├── package-for-cluster.sh       # local: tarball JAR+conf+scripts для копирования на ноду
 │   ├── kinit-bench.sh               # cluster-side: Kerberos из environment.yaml
-│   ├── run-benchmark.sh             # cluster-side: spark-submit (deploy_mode=cluster)
-│   ├── run-preflight.sh             # cluster-side: phase=preflight
-│   ├── spark-submit-orc-bench.sh    # cluster-side: низкоуровневый spark-submit
+│   ├── run-benchmark.sh             # cluster-side: единственная сборка spark-submit
+│   ├── run-preflight.sh             # cluster-side: phase=preflight → run-benchmark
+│   ├── spark-submit-orc-bench.sh    # CLI-адаптер к run-benchmark.sh (-- и --dry-run)
+│   ├── lib/common.sh                # общий YAML, jar, sizing, CRLF, --help
 │   └── fetch-results.sh             # cluster-side helper / подсказка копирования results
 ├── src/main/java/orcbench/
 │   ├── Main.java                    # CLI (picocli или аналог)
@@ -223,7 +224,7 @@ Main-Class: orcbench.Main
 ### 7.0. Правило среды: эта машина ≠ Hadoop-кластер
 
 > **На этом host разработки невозможно выполнять действия, предназначенные для Hadoop-кластера.**  
-> Сюда относятся: live Kerberos/`kinit` против кластерного KDC, запись/чтение HDFS (`/orc_test`), `spark-submit` на YARN, Hive JDBC к HS2, реальные фазы generate/materialize/run/final, сбор «живых» метрик с кластера.
+> Сюда относятся: live Kerberos/`kinit` против кластерного KDC, запись/чтение HDFS (`hdfs://orc_test`), `spark-submit` на YARN, Hive JDBC к HS2, реальные фазы generate/materialize/run/final, сбор «живых» метрик с кластера.
 
 Поэтому **каждый checkpoint** разделён на:
 
@@ -300,7 +301,7 @@ Main-Class: orcbench.Main
 
 - [ ] На ноде: Kerberos-контекст уже доступен → `./scripts/run-preflight.sh` (dry-run, затем live).
 - [ ] Отчёт capabilities / skip-matrix согласован с ожидаемыми skips (MV, `HDFS_CACHE.centralized`, LLAP по факту probe).
-- Проверки версий, HDFS writable `/orc_test`, Kerberos, Hive JDBC, LLAP observational — **только на ноде**.
+- Проверки версий, HDFS writable `hdfs://orc_test`, Kerberos, Hive JDBC, LLAP observational — **только на ноде**.
 
 **Статус:** (A) выполнено 2026-10-19. (B) pending — кластер с этого host недоступен.  
 **Стоп:** не начинать Checkpoint 4 без подтверждения пользователя (и желательно после (B) или явного «отложить cluster validation»).
@@ -319,7 +320,7 @@ Main-Class: orcbench.Main
 
 **(B) Cluster — gated (обязательная валидация на ноде; не с этого host)**
 
-- [ ] На ноде: generate в `{hdfs_root}/{scale}/RAW_ARRAY_BASE/`, `refs/`, `manifest/` (`hdfs_root=/orc_test`) через `spark-submit` / `scripts/run-benchmark.sh --phase generate`.
+- [ ] На ноде: generate в `{hdfs_root}/{scale}/RAW_ARRAY_BASE/`, `refs/`, `manifest/` (`hdfs_root=hdfs://orc_test`) через `spark-submit` / `scripts/run-benchmark.sh --phase generate`.
 - [ ] Проверка объёма/манифеста через `hdfs dfs` на ноде.
 - См. [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md).
 
@@ -471,7 +472,7 @@ spark-submit \
 ```
 
 5. Driver/AM оркестрирует фазы; Spark-jobs — на YARN; Hive — через JDBC к HS2 (ZooKeeper).
-6. Результаты драйвера — в `yarn logs` (§7.4 runbook). Файлы `--results-dir` остаются на узле AM. Данные — под `/orc_test/<scale>/…`.
+6. Результаты прогона — в `hdfs://orc_test/results/<namenode>/<runId>/` (runbook §7.4 / §8.1). Лог драйвера — `hdfs://orc_test/logs/<namenode>/<runId>/driver.log`. Данные generate/materialize — `hdfs://orc_test/<scale>/…`.
 
 Рекомендуемый первый день на кластере (пути из configs_final):
 
@@ -535,7 +536,7 @@ preflight (dry-run) → preflight → generate(S=100 GB) → materialize (узк
 
 ### 10.1. Принятые решения (закрытые неоднозначности)
 
-1. **Источник истины / HDFS root / YARN queue:** план следует **`orc_hdfs_spark_hive_configs_final`** (`/orc_test`, queue `default`). Операционный runbook — [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md) (единый документ запуска / CLI / отчётов).
+1. **Источник истины / HDFS root / YARN queue:** план следует **`orc_hdfs_spark_hive_configs_final`** (`hdfs://orc_test`, queue `default`). Операционный runbook — [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md) (единый документ запуска / CLI / отчётов).
 2. **Масштабы датасета:** во всех контрактных документах — **S=100 / M=500 / L=1024 GB** (логические GiB по `dataset.yaml`).
 3. **`deploy_mode`:** только **`cluster`**. Переключение на **`client`** отключено в скриптах запуска.
 4. **Executor sizing:** финализация **после первого trial run**. Для первого запуска — рекомендации §8.1 на базе 6 datanodes и Effective_Max_Capacity memory **221184** / vCores **67**.
@@ -569,7 +570,7 @@ preflight (dry-run) → preflight → generate(S=100 GB) → materialize (узк
 - [x] Checkpoint 3 **(A)**: preflight code + mock tests — выполнен.
 - [ ] Checkpoint 3 **(B)**: live `preflight` на ноде (не с этого host) — см. [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md).
 - [x] Явная команда пользователя перед Checkpoint 4 **(A)** — получено; CP4 (A) выполнен.
-- [ ] Checkpoint 4 **(B)**: live `generate` на ноде (HDFS `/orc_test/.../RAW_ARRAY_BASE`) — pending.
+- [ ] Checkpoint 4 **(B)**: live `generate` на ноде (HDFS `hdfs://orc_test/<scale>/RAW_ARRAY_BASE`) — pending.
 - [x] Явная команда пользователя перед Checkpoint 5 **(A)** — получено; CP5 (A) выполнен.
 - [ ] Checkpoint 5 **(B)**: live `materialize` на ноде (OVAT layouts + `state/*.done`) — pending.
 - [x] Явная команда пользователя перед Checkpoint 6 **(A)** — получено; CP6 (A) выполнен.

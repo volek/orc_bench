@@ -25,12 +25,19 @@ public final class LiveClusterBackend implements PreflightBackend {
     public HdfsProbeResult probeHdfs(String namenodeUri, String workDir) {
         try {
             Configuration conf = new Configuration();
-            if (namenodeUri != null && !namenodeUri.trim().isEmpty()) {
-                conf.set("fs.defaultFS", namenodeUri);
+            String dir = workDir == null || workDir.trim().isEmpty()
+                    ? "hdfs://orc_test" : workDir.trim();
+            Path work = new Path(dir);
+            FileSystem fs;
+            if (work.toUri().getScheme() != null) {
+                fs = work.getFileSystem(conf);
+            } else {
+                if (namenodeUri != null && !namenodeUri.trim().isEmpty()) {
+                    conf.set("fs.defaultFS", namenodeUri);
+                }
+                fs = FileSystem.get(conf);
             }
-            FileSystem fs = FileSystem.get(conf);
             long freeGib = fs.getStatus().getRemaining() / (1024L * 1024L * 1024L);
-            Path work = new Path(workDir == null ? "/orc_test" : workDir);
             if (!fs.exists(work) && !fs.mkdirs(work)) {
                 return new HdfsProbeResult(false, freeGib, "cannot create workDir " + work);
             }

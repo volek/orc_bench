@@ -61,7 +61,7 @@ class ExperimentExpanderTest {
         Set<String> paths = compression.stream().map(i -> i.layoutPath).collect(Collectors.toSet());
         assertEquals(3, paths.size());
         assertTrue(paths.stream().allMatch(p -> p.contains("/M/")));
-        assertTrue(paths.stream().allMatch(p -> p.startsWith("/orc_test/")));
+        assertTrue(paths.stream().allMatch(p -> p.startsWith("hdfs://orc_test/")));
         assertTrue(compression.stream().anyMatch(i -> "ZSTD".equals(i.orcSettings.compression)));
     }
 

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -148,12 +149,12 @@ class PreflightProbeTest {
         report.skippedExperiments.add(new String[]{"HIVE_MATERIALIZED_VIEW/n/a", "missing capabilities: materialized_views_supported"});
         report.versions.put("java.runtime", "1.8.0_test");
 
-        Path dir = PreflightReportWriter.write(tmp.toString(), "run1", report, "S");
-        assertTrue(Files.exists(dir.resolve("SUMMARY.txt")));
-        assertTrue(Files.exists(dir.resolve("capabilities.tsv")));
-        assertTrue(Files.exists(dir.resolve("skipped.tsv")));
-        assertTrue(Files.exists(dir.resolve("preflight-notes.txt")));
-        String skipped = new String(Files.readAllBytes(dir.resolve("skipped.tsv")), "UTF-8");
+        String dir = PreflightReportWriter.write(tmp.toString(), "run1", report, "S");
+        assertTrue(Files.exists(Paths.get(dir, "SUMMARY.txt")));
+        assertTrue(Files.exists(Paths.get(dir, "capabilities.tsv")));
+        assertTrue(Files.exists(Paths.get(dir, "skipped.tsv")));
+        assertTrue(Files.exists(Paths.get(dir, "preflight-notes.txt")));
+        String skipped = new String(Files.readAllBytes(Paths.get(dir, "skipped.tsv")), "UTF-8");
         assertTrue(skipped.contains("HIVE_MATERIALIZED_VIEW"));
     }
 

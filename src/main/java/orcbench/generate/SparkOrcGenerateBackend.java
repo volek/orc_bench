@@ -16,10 +16,6 @@ import org.apache.spark.sql.types.StructType;
 import scala.collection.JavaConverters;
 
 import java.io.Serializable;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -132,13 +128,10 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
         })).coalesce(1).write().mode(SaveMode.Overwrite).option("header", "true")
                 .csv(manifestPath + "/query_samples");
 
-        // Also drop a local JSON copy next to the submit cwd for ops convenience
-        Path localDir = Paths.get("generated", "manifest");
-        Files.createDirectories(localDir);
-        Files.write(localDir.resolve("query_samples.json"),
-                toJson(manifest).getBytes(StandardCharsets.UTF_8));
+        String jsonPath = orcbench.io.ResultStore.child(manifestPath, "query_samples.json");
+        orcbench.io.ResultStore.writeUtf8(jsonPath, toJson(manifest));
         System.out.println("[generate] wrote manifest to " + manifestPath
-                + " and local generated/manifest/query_samples.json");
+                + " and " + jsonPath);
     }
 
     @Override

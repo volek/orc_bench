@@ -1,13 +1,9 @@
 package orcbench.metrics;
 
+import orcbench.io.ResultStore;
 import orcbench.model.Models.AggregateStats;
 import orcbench.model.Models.RunResult;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -24,19 +20,14 @@ public final class MetricsStore {
     private MetricsStore() {}
 
     public static void appendJsonl(String path, List<RunResult> results) throws Exception {
-        if (results == null || results.isEmpty()) {
+        if (results == null || results.isEmpty() || path == null || path.isEmpty()) {
             return;
-        }
-        Path p = Paths.get(path);
-        if (p.getParent() != null) {
-            Files.createDirectories(p.getParent());
         }
         StringBuilder sb = new StringBuilder();
         for (RunResult r : results) {
             sb.append(toJson(r)).append('\n');
         }
-        Files.write(p, sb.toString().getBytes(StandardCharsets.UTF_8),
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        ResultStore.appendUtf8(path, sb.toString());
     }
 
     /**
@@ -48,11 +39,7 @@ public final class MetricsStore {
         if (path == null) {
             return out;
         }
-        Path p = Paths.get(path);
-        if (!Files.isRegularFile(p)) {
-            return out;
-        }
-        for (String line : Files.readAllLines(p, StandardCharsets.UTF_8)) {
+        for (String line : ResultStore.readLines(path)) {
             if (line == null) {
                 continue;
             }

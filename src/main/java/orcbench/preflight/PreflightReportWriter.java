@@ -1,74 +1,56 @@
 package orcbench.preflight;
 
+import orcbench.io.ResultStore;
 import orcbench.model.Models.CapabilityReport;
 
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Minimal preflight artefacts under {@code results/<runId>/} (full reporting is Checkpoint 8).
+ * Preflight artefacts under {@code <resultsDir>/<runId>/}.
+ * On a YARN driver {@code resultsDir} is an HDFS directory.
  */
 public final class PreflightReportWriter {
     private PreflightReportWriter() {}
 
-    public static Path write(String resultsDir, String runId, CapabilityReport report, String scale)
+    public static String write(String resultsDir, String runId, CapabilityReport report, String scale)
             throws IOException {
-        Path dir = Paths.get(resultsDir == null ? "results" : resultsDir, runId);
-        Files.createDirectories(dir);
+        String dir = ResultStore.child(resultsDir == null ? "results" : resultsDir, runId);
+        ResultStore.mkdirs(dir);
 
-        try (BufferedWriter w = Files.newBufferedWriter(dir.resolve("SUMMARY.txt"), StandardCharsets.UTF_8)) {
-            w.write("runId=" + runId);
-            w.newLine();
-            w.write("phase=preflight");
-            w.newLine();
-            w.write("scale=" + (scale == null ? "" : scale));
-            w.newLine();
-            w.write("skipped=" + report.skippedExperiments.size());
-            w.newLine();
-            w.write("capabilities=" + report.capabilities.size());
-            w.newLine();
-            w.write("notes=" + report.notes.size());
-            w.newLine();
-        }
+        StringBuilder summary = new StringBuilder();
+        summary.append("runId=").append(runId).append('\n');
+        summary.append("phase=preflight\n");
+        summary.append("scale=").append(scale == null ? "" : scale).append('\n');
+        summary.append("skipped=").append(report.skippedExperiments.size()).append('\n');
+        summary.append("capabilities=").append(report.capabilities.size()).append('\n');
+        summary.append("notes=").append(report.notes.size()).append('\n');
+        ResultStore.writeUtf8(ResultStore.child(dir, "SUMMARY.txt"), summary.toString());
 
-        try (BufferedWriter w = Files.newBufferedWriter(dir.resolve("capabilities.tsv"), StandardCharsets.UTF_8)) {
-            w.write("capability\tvalue");
-            w.newLine();
-            for (Map.Entry<String, Boolean> e : new TreeMap<>(report.capabilities).entrySet()) {
-                w.write(e.getKey());
-                w.write('\t');
-                w.write(String.valueOf(e.getValue()));
-                w.newLine();
-            }
+        StringBuilder caps = new StringBuilder();
+        caps.append("capability\tvalue\n");
+        for (Map.Entry<String, Boolean> e : new TreeMap<String, Boolean>(report.capabilities).entrySet()) {
+            caps.append(e.getKey()).append('\t').append(String.valueOf(e.getValue())).append('\n');
         }
+        ResultStore.writeUtf8(ResultStore.child(dir, "capabilities.tsv"), caps.toString());
 
-        try (BufferedWriter w = Files.newBufferedWriter(dir.resolve("skipped.tsv"), StandardCharsets.UTF_8)) {
-            w.write("experiment\treason");
-            w.newLine();
-            for (String[] row : report.skippedExperiments) {
-                w.write(row[0] == null ? "" : row[0]);
-                w.write('\t');
-                w.write(row.length > 1 && row[1] != null ? row[1] : "");
-                w.newLine();
-            }
+        StringBuilder skipped = new StringBuilder();
+        skipped.append("experiment\treason\n");
+        for (String[] row : report.skippedExperiments) {
+            skipped.append(row[0] == null ? "" : row[0]).append('\t');
+            skipped.append(row.length > 1 && row[1] != null ? row[1] : "").append('\n');
         }
+        ResultStore.writeUtf8(ResultStore.child(dir, "skipped.tsv"), skipped.toString());
 
-        try (BufferedWriter w = Files.newBufferedWriter(dir.resolve("preflight-notes.txt"), StandardCharsets.UTF_8)) {
-            for (String n : report.notes) {
-                w.write(n);
-                w.newLine();
-            }
-            for (Map.Entry<String, String> e : new TreeMap<>(report.versions).entrySet()) {
-                w.write("version." + e.getKey() + "=" + e.getValue());
-                w.newLine();
-            }
+        StringBuilder notes = new StringBuilder();
+        for (String n : report.notes) {
+            notes.append(n).append('\n');
         }
+        for (Map.Entry<String, String> e : new TreeMap<String, String>(report.versions).entrySet()) {
+            notes.append("version.").append(e.getKey()).append('=').append(e.getValue()).append('\n');
+        }
+        ResultStore.writeUtf8(ResultStore.child(dir, "preflight-notes.txt"), notes.toString());
         return dir;
     }
 }

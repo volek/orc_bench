@@ -59,7 +59,7 @@ public final class LayoutMaterializer {
      * Resume never overwrites an existing marker (execution_policy).
      */
     public static String markerPath(String hdfsRoot, String scale, ExperimentInstance i) {
-        String root = hdfsRoot == null ? "/orc_test" : hdfsRoot;
+        String root = hdfsRoot == null ? "hdfs://orc_test" : hdfsRoot;
         String sc = scale == null ? "S" : scale.toUpperCase(Locale.ROOT);
         String exp = i == null || i.experimentId == null ? "unknown" : i.experimentId;
         String variant = i == null || i.variantLabel == null ? "v" : sanitize(i.variantLabel);

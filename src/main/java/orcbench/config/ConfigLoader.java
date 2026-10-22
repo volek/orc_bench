@@ -92,7 +92,7 @@ public final class ConfigLoader {
         bs.slaMeanLatencyMs = longVal(b, "sla_mean_latency_ms", 3000L);
         bs.isolation = str(b, "isolation", "");
         bs.requireResultEquivalence = bool(b, "require_result_equivalence", true);
-        bs.hdfsRoot = str(b, "hdfs_root", "/orc_test");
+        bs.hdfsRoot = str(b, "hdfs_root", "hdfs://orc_test");
         bs.generatedHiveDdl = str(b, "generated_hive_ddl", "generated/hive-table.sql");
         bs.derivedPartitionColumns = stringList(b, "derived_partition_columns");
         c.benchmark = bs;
@@ -482,7 +482,7 @@ public final class ConfigLoader {
         c.environment.hdfs.defaultReplication = optInt(hdfs, "default_replication");
         c.environment.hdfs.blockSizeMib = optInt(hdfs, "block_size_mib");
         c.environment.hdfs.freeSpaceGib = optLong(hdfs, "free_space_gib");
-        c.environment.hdfs.workDir = str(hdfs, "work_dir", "/orc_test");
+        c.environment.hdfs.workDir = str(hdfs, "work_dir", "hdfs://orc_test");
         c.environment.hdfs.writeVerified = optBool(hdfs, "write_verified");
         c.environment.hdfs.shortCircuitSupported = optBool(sc, "supported");
         c.environment.hdfs.shortCircuitEnabled = optBool(sc, "enabled");

@@ -1,323 +1,475 @@
 # Запуск orc-bench на Hadoop-кластере
 
-Пошаговый операционный runbook: сборка на машине разработки → копирование на ноду → фазы pipeline → сбор результатов.
+Инструкция для прогона Pilot S (масштаб S = 100 GB) и забора результатов. Команды шагов 2–10 выполняются в SSH-сессии на узле кластера, из каталога с распакованным бандлом (ниже — `/opt/orc-bench`). Сборка и упаковка — на машине разработки.
 
 | | |
 |---|---|
 | Контракт | [`orc_hdfs_spark_hive_configs_final/`](orc_hdfs_spark_hive_configs_final/) → runtime-копия `conf/` |
-| План / checkpoint’ы | [`План разработки тестового приложения ORC HDFS Spark Hive.md`](План%20разработки%20тестового%20приложения%20ORC%20HDFS%20Spark%20Hive.md) (§7.0: **dev host ≠ cluster**) |
-| CLI / отчёты | этот документ: §13 (флаги), §8 (артефакты) |
+| Узкая матрица | [`conf/pilot-s.yaml`](../conf/pilot-s.yaml), обёртка `scripts/run-pilot-s.sh` |
+| План | [`План разработки тестового приложения ORC HDFS Spark Hive.md`](План%20разработки%20тестового%20приложения%20ORC%20HDFS%20Spark%20Hive.md) |
 
-> **Важно.** Команды разделов 3–8 выполняются **на ноде Hadoop/SDP-кластера**.  
-> Машина разработки (этот host) подходит только для сборки, unit/mock-тестов и упаковки артефактов (разделы 1–2).  
-> С этого host **не** запускать: live Kerberos к кластерному KDC, HDFS, `spark-submit` на YARN, Hive JDBC.
-
-**Зрелость приложения (на момент документа):** реализованы CP0–CP10 **(A)** — фазы CLI + отчёты + скрипты кластерного запуска / packaging / runbook + **Pilot S** (`conf/pilot-s.yaml`, `scripts/run-pilot-s.sh`, чеклист калибровки §12). Запуск только в **`deploy_mode=cluster`**. Скрипты отклоняют `--deploy-mode client` и `spark.deploy_mode: client`. Live preflight/generate/materialize/run/final / pilot trial на HDFS/YARN/HS2 — **только на ноде** (CP3–CP10 **(B)** pending).
+Живой `spark-submit` идёт только в `deploy_mode=cluster`. Скрипты завершаются с ошибкой на `--deploy-mode client` и на `deploy_mode: client` в `environment.local.yaml`.
 
 ---
 
-## 1. Предварительные требования (на ноде кластера)
+## Куда что пишется
 
-| Компонент | Ожидание (из `environment.yaml`) |
+Имена ниже — для текущего `conf/environment.yaml` (`namenode_uri: hdfs://sdp-dzo-lt-omlt`). Хост в путях результатов и логов берётся из этого URI.
+
+| Что | Путь |
 |---|---|
-| JDK | **1.8** (на кластере ориентир `1.8.0_292`); **не** Java 17 как runtime для submit |
-| Spark | 3.2.1 — в `PATH` есть `spark-submit` |
-| Hadoop | 3.1.3 — `hdfs`, `hadoop` в `PATH` |
-| Hive | 3.1.2 — JDBC к HS2 через ZooKeeper |
-| Tez | 0.9.1 |
-| YARN queue | **`default`** |
-| HDFS root / work | **`/orc_test`** (существует, writable для principal runner’а) |
-| Масштабы | S=100 GB, M=500 GB, L=1024 GB (`dataset.yaml`) |
-| Kerberos | Тикет / principal уже доступны на ноде; пути principal/keytab в конфиге — для `spark-submit` (см. §4) |
-| Сеть | Доступ к NN/RM/ZK HS2 с ноды submit |
+| Базовый ORC, scale S | `hdfs://orc_test/S/RAW_ARRAY_BASE/` |
+| Справочники и манифест | `hdfs://orc_test/S/refs/`, `hdfs://orc_test/S/manifest/` |
+| Layout’ы materialize | `hdfs://orc_test/S/<эксперимент>_<вариант>/` |
+| Маркеры «layout уже записан» | `hdfs://orc_test/state/S__<эксперимент>__<вариант>.done` |
+| Отчёты прогона | `hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/` |
+| Лог драйвера (растёт, пока жив YARN) | `hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log` |
+| Лог скрипта submit | локально `logs/<скрипт>-YYYYMMDD-HHMMSS.log`, копия `hdfs://orc_test/logs/sdp-dzo-lt-omlt/<имя файла>` |
 
-Права: приложение **не меняет** cluster-wide конфиги и **не сбрасывает** кэши. Эксперименты без capability → `skipped` (не fail, если `fail_if_required_capability_missing: false`).
+`hdfs_root` и `hdfs.work_dir` в конфиге равны `hdfs://orc_test`. Каталог отчётов по умолчанию скрипт подставляет сам (`hdfs://orc_test/results/sdp-dzo-lt-omlt`). Флаг `--results-dir` нужен, только если отчёты надо положить в другое место.
 
-### 1.1. Principal и keytab (плейсхолдеры из конфига)
+Данные generate и отчёты — разные деревья. Очистка одного дерева другое не трогает.
 
-Из `conf/environment.yaml` (не изобретать секреты; путь keytab — как в конфиге). Эти поля нужны **`spark-submit --principal` / `--keytab`** в cluster mode, а не как инструкция «сначала залогиниться вручную»:
+Живой запуск отвязан от терминала. Скрипт печатает `application_<id>` и завершается; ApplicationMaster на YARN продолжает работу после обрыва SSH. `runId` появляется уже внутри драйвера. Его каталог виден так:
+
+```bash
+hdfs dfs -ls hdfs://orc_test/logs/sdp-dzo-lt-omlt
+hdfs dfs -ls hdfs://orc_test/results/sdp-dzo-lt-omlt
+```
+
+Свежий подкаталог и есть `<runId>`. В начале `driver.log` есть строка `[orc-bench] resolved resultsDir=… runId=…`.
+
+---
+
+## Шаг 0. Сборка на машине разработки
+
+```bash
+cd /path/to/orc_bench
+./scripts/with-jdk8.sh ./scripts/build.sh
+```
+
+Артефакт: `build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar`.
+
+Упаковка для узла:
+
+```bash
+./scripts/package-for-cluster.sh --with-runbook
+# → dist/orc-bench-cluster-bundle.tgz
+#   jar в корне бандла, conf/, scripts/ (включая scripts/lib/), этот runbook
+```
+
+Проверка скриптов без кластера:
+
+```bash
+./scripts/run-pilot-s.sh --print
+./scripts/run-pilot-s.sh --dry-run-submit --phase run
+./scripts/run-preflight.sh --dry-run-submit
+```
+
+Локальный smoke приложения (отчёты остаются в локальном каталоге `results/`):
+
+```bash
+java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main \
+  --config conf --scale S --phase preflight --dry-run --results-dir results
+```
+
+---
+
+## Шаг 1. Копирование на узел
+
+```bash
+scp dist/orc-bench-cluster-bundle.tgz USER@NODE:/opt/orc-bench/
+ssh USER@NODE 'mkdir -p /opt/orc-bench && cd /opt/orc-bench && tar -xzf orc-bench-cluster-bundle.tgz && cd orc-bench'
+```
+
+Дальше все команды — на узле, каталог `/opt/orc-bench/orc-bench` (корень распакованного бандла; если копировали файлы вручную, это `/opt/orc-bench`).
+
+Проверка:
+
+```bash
+java -version          # 1.8.x
+which spark-submit hdfs
+test -f ./orc-bench-0.1.0-SNAPSHOT-all.jar && echo jar-ok
+```
+
+Если скрипт падает с `: No such file or directory` и пустым путём до двоеточия, в файлах Windows-окончания строк:
+
+```bash
+sed -i 's/\r$//' scripts/*.sh scripts/lib/*.sh
+```
+
+---
+
+## Шаг 2. Конфиг и Kerberos на узле
+
+```bash
+cp conf/environment.local.yaml.example conf/environment.local.yaml
+```
+
+В `environment.local.yaml` оставьте `deploy_mode: cluster`. Числа executor’ов на первый прогон: **10 × 4 × 16g**, очередь **`default`**. После прогона их правят по чеклисту §12.
+
+Keytab должен лежать по пути из `conf/environment.yaml`:
 
 ```text
 runner_principal: pvm-omltp-sdp@OPSMON.SBT
 keytab_path:      ~/keytab/pvm-omltp-sdp.keytab
 ```
 
-На ноде keytab должен лежать по этому пути (или укажите свой путь в `environment.local.yaml` / переменных скрипта — **не коммитьте** реальный keytab в git). Kerberos-тикет / identity runner’а к моменту запуска уже должны быть доступны на ноде (см. §4).
+`run-benchmark.sh` сам передаёт `--principal` и `--keytab` в `spark-submit`, если эти поля заданы. Файл keytab в git не кладут.
 
-### 1.2. Конфиги на ноде
-
-Минимум в каталоге запуска:
-
-```text
-conf/benchmark.yaml
-conf/dataset.yaml
-conf/environment.yaml
-conf/query-suite.yaml
-conf/schema.orc.txt
-conf/environment.local.yaml   # создать из example на ноде
-```
-
-Источник истины: `docs/orc_hdfs_spark_hive_configs_final/` (синхронизирован в `conf/` репозитория).
+Обёртка в cluster mode сама добавляет `spark-submit --files` для `--env-override` и `--metrics-jsonl` и в приложение отдаёт только имя файла: драйвер читает его из рабочей директории контейнера. Прямой `spark-submit` без `--files` этот файл в контейнер не кладёт.
 
 ---
 
-## 2. Сборка на машине разработки (этот host)
+## Шаг 3. Очистка данных на HDFS
 
-Сборка **допустима** локально / в CI:
-
-```bash
-# из корня репозитория orc_bench
-./scripts/with-jdk8.sh ./scripts/build.sh
-# либо: ./gradlew clean test shadowJar
-```
-
-Артефакт:
-
-```text
-build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar
-Main-Class: orcbench.Main
-```
-
-Упаковка для копирования (локально):
+Перед **первым** прогоном на пустом `hdfs://orc_test` удалять нечего. Проверка:
 
 ```bash
-./scripts/package-for-cluster.sh
-# → dist/orc-bench-cluster-bundle.tgz  (jar + conf/ + scripts/ + NODE_README.txt)
-./scripts/package-for-cluster.sh --with-runbook   # + docs/Запуск на Hadoop кластере.md
+hdfs dfs -ls hdfs://orc_test
+hdfs dfs -du -h hdfs://orc_test/S
+hdfs dfs -ls hdfs://orc_test/state
 ```
 
-Локальный smoke **без** кластера (CLI / dry-run config / печать submit-линии):
+Очистка нужна, когда данные уже есть и их надо записать заново. Удаление уходит в корзину HDFS. Флаг `-skipTrash` добавляйте после того, как `hdfs dfs -ls` показал ровно те пути, которые собираетесь стереть.
+
+### 3.1. Полный пересъём scale S
+
+Generate перезаписывает `RAW_ARRAY_BASE`, `refs/` и `manifest/` (`SaveMode.Overwrite`). Старые layout’ы и маркеры при этом остаются. Повторный materialize видит `*.done` и **пропускает** уже отмеченные layout’ы, даже если базовый ORC уже другой.
+
+Перед новым generate, если базовый набор надо пересобрать вместе с layout’ами:
 
 ```bash
-java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main --help
-java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main \
-  --config conf --scale S --phase preflight --dry-run --results-dir results
-
-# Скрипты: синтаксис / help / печать команды без spark-submit
-./scripts/run-benchmark.sh --help
-./scripts/run-benchmark.sh --dry-run-submit --phase preflight --scale S
-./scripts/run-preflight.sh --dry-run-submit
-./scripts/spark-submit-orc-bench.sh --dry-run -- --config conf --phase preflight --dry-run
+hdfs dfs -rm -r hdfs://orc_test/S
+hdfs dfs -rm -r hdfs://orc_test/state/S__*
 ```
+
+Каталоги `hdfs://orc_test/results/` и `hdfs://orc_test/logs/` этой командой не затрагиваются.
+
+### 3.2. Переписать один layout
+
+Маркер и каталог layout’а удаляют парой. Иначе materialize либо пропустит запись (маркер на месте), либо оставит старые файлы.
+
+```bash
+hdfs dfs -ls hdfs://orc_test/S
+hdfs dfs -ls hdfs://orc_test/state
+
+hdfs dfs -rm -r hdfs://orc_test/S/<каталог_layout>
+hdfs dfs -rm hdfs://orc_test/state/S__<эксперимент>__<вариант>.done
+```
+
+`RAW_ARRAY_BASE`, `refs/` и `manifest/` при этом оставляют.
+
+### 3.3. Снять лишние layout’ы и оставить базовый ORC
+
+Флаг materialize `--cleanup-layouts` удаляет под `hdfs://orc_test/<scale>/` каталоги перезаписи, кроме `RAW_ARRAY_BASE`, `refs/`, `manifest/` и имён из `--keep-layouts`. Маркеры в `hdfs://orc_test/state/` он не удаляет. После такой очистки следующий materialize снова пропустит эксперимент, пока соответствующий `*.done` лежит на месте. Чтобы layout записался заново, удалите и маркер (§3.2).
+
+Пример: оставить layout’ы `MINMAX_SORT`, остальные rewrite-каталоги scale S удалить в конце materialize:
+
+```bash
+./scripts/run-pilot-s.sh --phase materialize \
+  --env-override conf/environment.local.yaml \
+  --cleanup-layouts --keep-layouts MINMAX_SORT
+```
+
+### 3.4. Старые отчёты и логи
+
+На данные бенчмарка это не влияет. Удаляйте конкретный прогон, когда каталог больше не нужен:
+
+```bash
+hdfs dfs -rm -r hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>
+hdfs dfs -rm -r hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>
+```
+
+Лог скрипта submit лежит файлом рядом с каталогами `<runId>`, не внутри них: `hdfs dfs -ls hdfs://orc_test/logs/sdp-dzo-lt-omlt`.
 
 ---
 
-## 3. Копирование артефактов на ноду
+## Шаг 4. Preflight
 
-С машины, у которой есть SSH к ноде (пример; подставьте user/host/path):
-
-```bash
-# вариант A: tarball
-scp dist/orc-bench-cluster-bundle.tgz USER@NODE:/opt/orc-bench/
-ssh USER@NODE 'mkdir -p /opt/orc-bench && cd /opt/orc-bench && tar -xzf orc-bench-cluster-bundle.tgz'
-
-# вариант B: по файлам
-scp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar USER@NODE:/opt/orc-bench/
-scp -r conf USER@NODE:/opt/orc-bench/
-scp -r scripts USER@NODE:/opt/orc-bench/
-```
-
-На ноде рабочий каталог (пример): `/opt/orc-bench/`.  
-Дальнейшие команды — **в SSH-сессии на ноде**, из этого каталога.
-
-Проверка окружения ноды:
+Сначала прогон по конфигу (без живых проб HDFS и JDBC):
 
 ```bash
-java -version          # должен быть 1.8.x
-which spark-submit hdfs
-echo "$JAVA_HOME"
-```
-
----
-
-## 4. Kerberos
-
-Ручной логин (`kinit` / обёртки) **не входит** в процедуру запуска этого runbook. На submit-ноде к моменту live-фаз уже должен быть доступен Kerberos-контекст runner’а (валидный тикет, либо identity, которую обеспечивает окружение / Spark / Hadoop).
-
-Для `spark-submit --deploy-mode cluster` YARN обычно требует пути из конфига:
-
-```text
---principal <runner_principal>
---keytab <абсолютный_путь_к_keytab>
-```
-
-Скрипт `run-benchmark.sh` передаёт их, если заданы `ORC_BENCH_PRINCIPAL` / `ORC_BENCH_KEYTAB` или найдены в YAML (`runner_principal`, `keytab_path` — см. §1.1). Убедитесь, что файл keytab на ноде существует по указанному пути.
-
----
-
-## 5. `environment.local.yaml` / overrides
-
-На ноде:
-
-```bash
-cp conf/environment.local.yaml.example conf/environment.local.yaml
-# отредактируйте при необходимости: executor_*, llap_*, free_space_gib, …
-```
-
-Типичные правки:
-
-| Поле | Зачем |
-|---|---|
-| `spark.executor_*` | Калибровка после первого trial (§8.1 плана) |
-| `hdfs.free_space_gib` | Актуальный снимок для preflight capacity |
-
-`spark.deploy_mode` остаётся **`cluster`**. Значение `client` в `environment.local.yaml` или флаг `--deploy-mode client` скрипты завершают с ошибкой.
-
-Передача: `--env-override conf/environment.local.yaml`.
-
-В cluster mode `run-benchmark.sh` и `spark-submit-orc-bench.sh` сами добавляют `spark-submit --files` для этого файла и для `--metrics-jsonl`, а в приложение передают только имя файла. Driver в контейнере AM открывает его из своей рабочей директории. Прямой `spark-submit` без `--files` файл в контейнер не кладёт — см. §7.3. Фазы, которые сами не создают `SparkSession` (preflight, report, dry-run), открывают её, когда ApplicationMaster уже выставил `spark.yarn.app.id` (cluster mode). Без сессии YARN завершает AM с `User did not initialize spark context`. В stdout драйвера есть строка `driver spark.master=... yarnAppId=...`.
-
----
-
-## 6. Фазы: dry-run vs live
-
-| Phase | Смысл | Где | Статус кода |
-|---|---|---|---|
-| `preflight` | Версии, HDFS `/orc_test`, Kerberos, JDBC, capabilities → skip-matrix | **Только нода** (live); dry-run config — и локально | CP3 ✅ |
-| `generate` | Синтетика `RAW_ARRAY_BASE` на HDFS | Нода (live); локально — `--dry-run` / `--mock-generate` | CP4 (A) ✅; (B) pending |
-| `materialize` | OVAT layout’ы из RAW_ARRAY_BASE | Нода (live); локально — `--dry-run` / `--mock-materialize` | CP5 (A) ✅; (B) pending |
-| `run` | Query suite Spark + Hive Tez/LLAP | Нода (live); локально — `--dry-run` / `--mock-run` | CP6–CP7 (A) ✅; (B) pending |
-| `report` | SUMMARY/CSV/skipped из `metrics.jsonl` | Локально (fixtures) или нода | CP8 (A) ✅ |
-| `final` | BEST_ORC × engines + отчёты | Нода (live); локально — dry-run / metrics fixtures | CP8 (A) ✅; (B) pending |
-| `all` | Все подряд | Нода (live); локально — dry-run до final | CP8 (A) ✅ |
-
-Рекомендуемый первый день на кластере (когда фазы реализованы):
-
-```text
-preflight --dry-run  →  preflight  →  generate(S)  →  materialize (узкий --experiments)  →  run  →  final
-```
-
-### 6.1. Сейчас (CP9 scripts + CP8 phases): preflight → … → run → report/final
-
-```bash
-cd /opt/orc-bench   # или ваш путь
-
-# dry-run (без live HDFS/JDBC probes — всё же запускайте на ноде для единообразия PATH/конфигов)
 ./scripts/run-preflight.sh --env-override conf/environment.local.yaml
+```
 
-# live preflight
+Затем живые пробы (запись в `hdfs://orc_test`, Kerberos, Hive JDBC):
+
+```bash
+./scripts/run-preflight.sh --live --env-override conf/environment.local.yaml
+```
+
+Скрипт печатает `application_<id>` и возвращает оболочку. Статус:
+
+```bash
+yarn application -status application_<id>
+```
+
+Дождитесь `SUCCEEDED`. Отчёт preflight — свой `<runId>`:
+
+```text
+hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/capabilities.tsv
+hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/preflight-notes.txt
+hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/skipped.tsv
+```
+
+Ожидаемые пропуски по контракту: `HIVE_MATERIALIZED_VIEW`, `HDFS_CACHE.centralized`. LLAP до зелёного probe остаётся observational. Дальше идите, когда preflight завершился `SUCCEEDED` и в `preflight-notes.txt` нет отказа записи в `hdfs://orc_test`.
+
+---
+
+## Шаг 5. Generate (scale S)
+
+Если на HDFS уже лежит старый scale S и его надо заменить вместе с layout’ами — сначала §3.1.
+
+```bash
+./scripts/run-pilot-s.sh --phase generate \
+  --env-override conf/environment.local.yaml
+```
+
+Дождитесь `SUCCEEDED`. Проверка объёма:
+
+```bash
+hdfs dfs -ls hdfs://orc_test/S/RAW_ARRAY_BASE
+hdfs dfs -ls hdfs://orc_test/S/refs
+hdfs dfs -ls hdfs://orc_test/S/manifest
+hdfs dfs -du -h hdfs://orc_test/S
+```
+
+Ориентир: логический объём S = 100 GB, порядка 89 млн строк. Каталог `RAW_ARRAY_BASE` должен быть непустым. Лог драйвера этой фазы: `hdfs dfs -tail hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log`. В конце ожидается `[orc-bench] OK — generate`.
+
+Повторный generate без удаления `hdfs://orc_test/S` перезаписывает базу, справочники и манифест. Layout’ы и маркеры остаются прежними — для нового materialize выполните §3.1 или §3.2.
+
+---
+
+## Шаг 6. Materialize (Pilot S)
+
+Пишет три семейства layout’ов поверх `RAW_ARRAY_BASE`: `MINMAX_SORT`, `BLOOM_USER`, `PARTITIONING`.
+
+```bash
+./scripts/run-pilot-s.sh --phase materialize \
+  --env-override conf/environment.local.yaml
+```
+
+Проверка:
+
+```bash
+hdfs dfs -ls hdfs://orc_test/S
+hdfs dfs -ls hdfs://orc_test/state
+```
+
+Рядом с `RAW_ARRAY_BASE` появляются каталоги экспериментов. В `hdfs://orc_test/state/` — файлы `S__MINMAX_SORT__…done`, `S__BLOOM_USER__…done`, `S__PARTITIONING__…done`. Повторный materialize с теми же маркерами новые ORC не пишет: в `driver.log` строка `[materialize] skip (marker)`. Чтобы записать layout заново, удалите пару «каталог + маркер» (§3.2) и запустите эту команду снова.
+
+Эквивалент без обёртки пилота:
+
+```bash
 ./scripts/run-benchmark.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --scale S \
-  --phase preflight \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
-
-# live generate (scale S → /orc_test/S/RAW_ARRAY_BASE/, refs/, manifest/)
-./scripts/run-benchmark.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --scale S \
-  --phase generate \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
-
-# проверка на ноде:
-# hdfs dfs -ls /orc_test/S/RAW_ARRAY_BASE
-# hdfs dfs -du -h /orc_test/S
-
-# Pilot S materialize / Spark run — предпочтительно через обёртку (§6.2):
-./scripts/run-pilot-s.sh --phase materialize --env-override conf/environment.local.yaml
-./scripts/run-pilot-s.sh --phase run --env-override conf/environment.local.yaml
-
-# эквивалент вручную (узкая OVAT-матрица CP10):
-./scripts/run-benchmark.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --scale S \
-  --phase materialize \
+  --scale S --phase materialize \
   --experiments MINMAX_SORT,BLOOM_USER,PARTITIONING \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
+  --env-override conf/environment.local.yaml
+```
 
+---
+
+## Шаг 7. Прогон запросов (Pilot S)
+
+Движок `spark`, эксперименты:
+
+`ORC_COLUMN_PRUNING`, `ORC_PUSHDOWN`, `MINMAX_SORT`, `BLOOM_USER`, `PARTITIONING`, `SPARK_VECTORIZATION`.
+
+`ORC_COLUMN_PRUNING` и `ORC_PUSHDOWN` читают `RAW_ARRAY_BASE`. `SPARK_VECTORIZATION` отдельный layout не создаёт. На каждую измеряемую ячейку: 5 прогревов и 30 замеров (`benchmark.yaml`). Прогон длинный: скрипт submit завершится сразу после `application_<id>`, приложение останется в YARN.
+
+```bash
+./scripts/run-pilot-s.sh --phase run \
+  --env-override conf/environment.local.yaml
+```
+
+Сразу запишите `application_<id>` из вывода. Найдите `<runId>`:
+
+```bash
+hdfs dfs -ls hdfs://orc_test/logs/sdp-dzo-lt-omlt
+```
+
+Дальше, пока приложение в состоянии `RUNNING`:
+
+```bash
+yarn application -status application_<id>
+hdfs dfs -tail -f hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log
+```
+
+`metrics.jsonl` появляется после первой завершённой ячейки и дописывается по одной ячейке:
+
+```bash
+hdfs dfs -tail hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/metrics.jsonl
+```
+
+В логе драйвера на каждую ячейку есть `[run] spark <эксперимент>/<вариант>` и `[run] appended N rows to …/metrics.jsonl`. Успешный конец фазы:
+
+```text
+[run] complete attempts=…
+[orc-bench] OK — run complete
+```
+
+`yarn application -status` при этом показывает финальный статус `SUCCEEDED`. Локальный `logs/run-pilot-s-*.log` и его копия на HDFS содержат вывод submit до появления `application_<id>`. После выхода скрипта они больше не растут. Ход запросов смотрите в `driver.log`.
+
+Этот `<runId>` понадобится на шаге 8. Прогон `run` и прогон `preflight` — разные приложения и разные `<runId>`.
+
+Hive Tez / LLAP в Pilot S не входят. Отдельный прогон, когда Spark-пилот уже разобран:
+
+```bash
 ./scripts/run-benchmark.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --scale S \
-  --phase run \
-  --engines spark \
-  --experiments ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
-
-# проверка на ноде:
-# hdfs dfs -ls /orc_test/S
-# hdfs dfs -ls /orc_test/state
-# ls results/*/metrics.jsonl
-# head -n 3 results/*/metrics.jsonl
-
-# (опционально после Pilot S) Hive Tez / LLAP — отдельный прогон, не входит в узкий Spark-пилот:
-./scripts/run-benchmark.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --scale S \
-  --phase run \
+  --scale S --phase run \
   --engines hive_tez,hive_llap \
   --experiments HIVE_TEZ_BASE,HIVE_VECTORIZATION,HIVE_CBO,HIVE_LLAP \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
+  --env-override conf/environment.local.yaml
 ```
 
-Локально (dev host, без HDFS/YARN/HS2): `./scripts/run-pilot-s.sh --print` / `--dry-run-submit`; или `--phase run --engines hive_tez --dry-run` / `--mock-run`.
+---
 
-Ожидаемые skips (по configs_final): `HIVE_MATERIALIZED_VIEW`, `HDFS_CACHE.centralized`; LLAP — по факту probe на ноде (observational до зелёного probe); Hive ZSTD не требуется (codec gap 1.5.6).
+## Шаг 8. Отчёт и сравнение
 
-### 6.2. Pilot S (CP10) — узкая матрица + калибровка
+`report` и `final` читают уже записанный `metrics.jsonl`. Запросы заново не исполняют. Им передают `<runId>` шага 7. Каталог отчётов тот же, скрипт подставит его сам.
 
-Контракт: [`conf/pilot-s.yaml`](../conf/pilot-s.yaml) (копия в `docs/orc_hdfs_spark_hive_configs_final/pilot-s.yaml`). Обёртка: `scripts/run-pilot-s.sh`.
+```bash
+./scripts/run-pilot-s.sh --phase report \
+  --run-id <runId> \
+  --env-override conf/environment.local.yaml
+
+./scripts/run-pilot-s.sh --phase final \
+  --run-id <runId> \
+  --env-override conf/environment.local.yaml
+```
+
+После `SUCCEEDED` в `hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/`:
+
+| Файл | Когда появляется |
+|---|---|
+| `metrics.jsonl` | Во время шага 7, по ячейке |
+| `SUMMARY.txt` | `report` и `final` |
+| `summary.csv` | `report` и `final` |
+| `skipped.tsv` | `report` и `final` |
+| `final_comparison.tsv` | `final` (BEST_ORC и профили движков) |
+
+Посмотреть с узла, не забирая каталог целиком:
+
+```bash
+hdfs dfs -cat hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/SUMMARY.txt
+hdfs dfs -tail hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/summary.csv
+```
+
+`SUMMARY.txt` содержит порог SLA 3000 ms, долю успехов и блок **BEST_ORC** (`experimentId`, `layoutPath`, `meanP50Ms`). Hive-рекомендация ZSTD не выбирается (кодек ORC 1.5.6 на Hive).
+
+---
+
+## Шаг 9. Забрать результаты с кластера
+
+На узле. Скрипт сам делает `hdfs dfs -get`, если локального `results/<runId>` ещё нет, и пакует архив:
+
+```bash
+./scripts/fetch-results.sh --run-id <runId>
+# → /opt/orc-bench/orc-bench/results-<runId>.tgz
+```
+
+Список прогонов, которые уже лежат локально:
+
+```bash
+./scripts/fetch-results.sh --list
+./scripts/fetch-results.sh --latest
+```
+
+С машины разработки:
+
+```bash
+scp USER@NODE:/opt/orc-bench/orc-bench/results-<runId>.tgz .
+tar -tzf results-<runId>.tgz
+```
+
+Ручной вариант без архива:
+
+```bash
+mkdir -p results
+hdfs dfs -get hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId> results/
+```
+
+Лог драйвера в каталог результатов не входит. Его забирают отдельно:
+
+```bash
+hdfs dfs -get \
+  hdfs://orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log \
+  driver-<runId>.log
+```
+
+После завершения приложения тот же текст есть в `yarn logs -applicationId application_<id>`.
+
+---
+
+## Шаг 10. Что считать результатом прогона
+
+1. YARN-приложение шага 7 в статусе `SUCCEEDED`.
+2. В `driver.log` есть `[orc-bench] OK — run complete`.
+3. `metrics.jsonl` непустой, `summary.csv` и `SUMMARY.txt` лежат в том же `<runId>` после шага 8.
+4. В `SUMMARY.txt` заполнен блок BEST_ORC либо явная пометка, что метрик для выбора не хватило.
+5. `skipped.tsv` разобран: пропуски по capability ожидаемы, ошибки ячеек — нет.
+6. Чеклист §12 заполнен по этому `<runId>` (время generate / materialize / run, sizing, решение про M/L).
+
+Пока приложение `RUNNING`, промежуточный результат — растущие `driver.log` и `metrics.jsonl`. Локальный каталог `results/` на submit-узле до шага 9 пуст.
+
+---
+
+## Состав Pilot S
 
 | Что | Значение |
 |---|---|
-| Scale | **S = 100 GB** |
-| Executors (старт §8.1) | **10 × 4 cores × 16g** (`deploy_mode=cluster`) |
-| YARN ориентир | 6 DN; Effective_Max **221184 MB / 67 vCores** |
-| Concurrency старт (§8.2) | **1, 5** (capacity-aware; финал — после trial) |
-| materialize `--experiments` | `MINMAX_SORT,BLOOM_USER,PARTITIONING` |
-| run `--experiments` | `ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION` |
-| engines (пилот) | `spark` |
+| Scale | S = 100 GB |
+| Executors, старт | 10 × 4 × 16g, `deploy_mode=cluster`, очередь `default` |
+| Concurrency, старт | 1 и 5 |
+| materialize | `MINMAX_SORT,BLOOM_USER,PARTITIONING` |
+| run | `ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION` |
+| Движок пилота | `spark` |
 
-Последовательность на ноде:
-
-```text
-preflight → generate(S) → materialize (pilot) → run (pilot) → report/final
-→ заполнить чеклист калибровки §12 → решить о расширении матрицы / M|L
-```
-
-Dev-host smoke (без кластера):
-
-```bash
-./scripts/run-pilot-s.sh --print
-./scripts/run-pilot-s.sh --dry-run-submit --phase materialize
-./scripts/run-pilot-s.sh --dry-run-submit --phase run
-```
+Порядок на узле: шаг 3 при необходимости → preflight → generate → materialize → run → report → final → fetch → §12.
 
 ---
 
-## 7. Примеры `spark-submit`
+## Поля отчёта
 
-### 7.1. Через обёртку (рекомендуется)
+| Файл | Содержание |
+|---|---|
+| `metrics.jsonl` | Одна строка JSON на измерение: `runId`, `experimentId`, `variantLabel`, `engine`, `queryId`, `repetition`, `warmup`, `concurrency`, `cacheState`, `latencyMs`, `status`, `resultHash`, `logicalRows`, `orcFileBytes`, `hdfsBytesRead` |
+| `summary.csv` | Агрегат ячейки: `n`, `avgMs`, `p50Ms`, `p95Ms`, `p99Ms`, `slaSuccessRate`, `scanRatio`, `resultHash`, `slaPass`. SLA: latency ≤ 3000 ms, `slaPass` при доле успехов ≥ 0.95 |
+| `skipped.tsv` | Эксперимент и причина пропуска |
+| `SUMMARY.txt` | Счётчики, SLA, блок BEST_ORC |
+| `final_comparison.tsv` | Профили движков на layout BEST_ORC |
+| `capabilities.tsv`, `preflight-notes.txt` | Только фаза preflight |
 
-```bash
-# deploy_mode=cluster, единственный режим
-./scripts/run-benchmark.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --config conf \
-  --scale S \
-  --phase preflight \
-  --env-override conf/environment.local.yaml \
-  --results-dir results
-```
+---
 
-### 7.2. Низкоуровневый скрипт
+## Скрипты
+
+| Скрипт | Где | Назначение |
+|---|---|---|
+| `with-jdk8.sh`, `build.sh` | Машина разработки | Сборка fat-jar на JDK 8 |
+| `package-for-cluster.sh` | Машина разработки | Архив jar + `conf/` + `scripts/` |
+| `run-benchmark.sh` | Узел | Единственная сборка `spark-submit` |
+| `run-pilot-s.sh` | Узел | Pilot S: `--phase` и списки из `pilot-s.yaml`, дальше вызывает `run-benchmark.sh` |
+| `run-preflight.sh` | Узел | `--phase preflight`; без `--live` добавляет `--dry-run` |
+| `spark-submit-orc-bench.sh` | Узел | Тот же submit. Аргументы `Main` только после `--`, флаг печати команды — `--dry-run`, master всегда `yarn` |
+| `fetch-results.sh` | Узел | `hdfs dfs -get` каталога прогона и упаковка в `.tgz` |
+| `kinit-bench.sh` | Узел, по желанию | `kinit -kt` из `runner_principal` / `keytab_path`. Основной путь этого runbook на него не опирается |
+| `lib/common.sh` | библиотека | YAML, jar, sizing, CRLF, шапка `--help` |
+| `lib/logging.sh` | библиотека | Tee в `logs/` и копия в `hdfs://orc_test/logs/<namenode>/` |
+| `lib/cluster-dist.sh` | библиотека | Локальные `--env-override` и `--metrics-jsonl` → `spark-submit --files` |
+| `lib/detach-submit.sh` | библиотека | `setsid`/`nohup`, выход после `application_<id>` |
+
+Низкоуровневый вызов с тем же поведением, что `run-benchmark.sh`:
 
 ```bash
 ./scripts/spark-submit-orc-bench.sh \
-  --jar ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --deploy-mode cluster \
-  -- --config conf --scale S --phase preflight --env-override conf/environment.local.yaml
+  --deploy-mode cluster -- \
+  --config conf --scale S --phase preflight \
+  --env-override conf/environment.local.yaml
 ```
 
-(Аргументы после `--` уходят в `orcbench.Main`.)
-
-### 7.3. Прямой вызов (cluster)
-
-Значения executor — стартовые из §8.1 плана / `environment.yaml` (10×4×16g); queue **`default`**:
+Прямой `spark-submit` (обёртка это собирает сама; `--files` обязателен вручную):
 
 ```bash
 spark-submit \
@@ -329,230 +481,111 @@ spark-submit \
   --executor-memory 16g \
   --principal pvm-omltp-sdp@OPSMON.SBT \
   --keytab "$HOME/keytab/pvm-omltp-sdp.keytab" \
+  --conf spark.yarn.submit.waitAppCompletion=false \
   --files conf/environment.local.yaml \
   --class orcbench.Main \
   ./orc-bench-0.1.0-SNAPSHOT-all.jar \
-  --config conf \
-  --scale S \
-  --phase preflight \
+  --config conf --scale S --phase preflight \
   --env-override environment.local.yaml \
-  --results-dir results
+  --results-dir hdfs://orc_test/results/sdp-dzo-lt-omlt
 ```
 
-`--files` обязателен при ручном вызове: в контейнере AM нет каталога `conf/` со шлюза. Обёртки из §7.1 и §7.2 делают эту подмену сами. Базовые YAML (`environment.yaml`, `benchmark.yaml`, …) уже лежат в fat-jar и с classpath читаются без `--files`. `--deploy-mode` здесь только `cluster`.
+`--conf spark.yarn.submit.waitAppCompletion=false` нужен, чтобы клиент submit вернулся после постановки приложения в YARN.
 
-### 7.4. Где смотреть вывод драйвера
-
-Драйвер работает в контейнере ApplicationMaster, не на submit-ноде.
-
-1. **Stdout/stderr драйвера** (текст preflight, `[orc-bench] OK`, ошибки): `yarn logs -applicationId <appId>`. Идентификатор приложения печатает `spark-submit`.
-2. **Файлы `--results-dir`** пишутся на локальный диск узла AM и удаляются вместе с контейнером. Каталог `results/` на submit-ноде после такого прогона пуст. `./scripts/fetch-results.sh` упакует каталог, только если он уже лежит на той машине, где запущен скрипт.
-3. **Данные бенчмарка** остаются в HDFS под `/orc_test` (см. §8.3).
-4. **Общий каталог**, если на узлах YARN смонтирован один и тот же путь: `--results-dir /shared/orc-bench/results`. Путь должен быть доступен процессу AM.
-
-Preflight и другие фазы без своих Spark-задач всё равно открывают `SparkSession` на время драйвера. Иначе AM завершается с `User did not initialize spark context` (exit 13).
 ---
 
-## 8. Где лежат результаты и как забрать
+## Если что-то пошло не так
 
-### 8.1. Локальные отчёты на ноде
-
-```text
-results/<runId>/
-  SUMMARY.txt
-  summary.csv             # после run / report / final (CP8)
-  metrics.jsonl
-  skipped.tsv
-  final_comparison.tsv    # только --phase final (BEST_ORC × engines)
-  capabilities.tsv        # preflight
-  preflight-notes.txt     # preflight
-```
-
-`runId` печатается в stdout драйвера (`yarn logs -applicationId <appId>`, §7.4). На submit-ноде каталога `results/<runId>/` после cluster-запуска обычно нет: файлы писал процесс AM.
-
-Повторный отчёт с уже собранных metrics: `--phase report|final` + `--run-id <id>` и/или `--metrics-jsonl <path>` (fixtures / файл, скопированный с общего каталога).
-
-Упаковка, если каталог уже есть на этой машине (общий mount или копия):
-
-```bash
-# на ноде — упаковать
-./scripts/fetch-results.sh --results-dir results --run-id <runId>
-# или: tar -czf results-<runId>.tgz -C results <runId>
-
-# с рабочей машины:
-scp USER@NODE:/opt/orc-bench/results-<runId>.tgz .
-```
-
-### 8.2. Поля артефактов отчёта
-
-| Файл | Назначение / ключевые поля |
+| Симптом | Что сделать |
 |---|---|
-| `metrics.jsonl` | Одна строка JSON на измерение: `runId`, `experimentId`, `variantLabel`, `engine`, `queryId`, `repetition`, `warmup`, `concurrency`, `cacheState`, `latencyMs`, `status`, `resultHash`, `logicalRows`, `orcFileBytes`, `hdfsBytesRead`, … |
-| `summary.csv` | Агрегаты по ячейке: `experimentId,variantLabel,engine,queryId,concurrency,cacheState,n,avgMs,p50Ms,p95Ms,p99Ms,slaSuccessRate,scanRatio,resultHash,slaPass`. SLA: latency ≤ **3000 ms** (`sla_mean_latency_ms` / `sla_success_threshold_ms`); `slaPass` = доля успехов ≥ 0.95. `scanRatio` ≈ HDFS bytes read / ORC file bytes. |
-| `skipped.tsv` | `experiment` + `reason` (capability / probe / policy). |
-| `SUMMARY.txt` | Сводка прогона: counts, `slaThresholdMs`, `slaGateOverall`, блок **BEST_ORC** (`experimentId`, `layoutPath`, `meanP50Ms`, `meanSlaSuccessRate`, `slaPassed`, `tieBreakClass`), ячейки final, notes. |
-| `final_comparison.tsv` | После `final`: `engineProfile`, `engine`, `layoutPath` (BEST_ORC layout), `queries`, `skipReason`. |
+| `application_<id>` есть, SSH уже закрыт | `yarn application -status application_<id>` и `hdfs dfs -tail` лога драйвера. Submit-сессия приложению не нужна |
+| Долго нет `metrics.jsonl` | Файл создаётся после первой ячейки. Смотрите `driver.log`: строка `[run] spark …` означает, что ячейка ещё считается |
+| Materialize сразу `skip (marker)` | Маркер уже есть. Для перезаписи — §3.2 |
+| Generate прошёл, materialize пишет, что нет `RAW_ARRAY_BASE` | Проверьте `hdfs dfs -ls hdfs://orc_test/S/RAW_ARRAY_BASE`. Путь именно `hdfs://orc_test`, не `hdfs://sdp-dzo-lt-omlt/orc_test` |
+| `Permission denied` на `hdfs://orc_test` | Права principal’а: `hdfs dfs -ls hdfs://orc_test` и пробная запись preflight `--live` |
+| `client deploy mode is disabled` | В `environment.local.yaml` стоит `deploy_mode: cluster`, флаг `--deploy-mode client` не передаётся |
+| `User did not initialize spark context` | На узле старый jar. Заново скопируйте `orc-bench-0.1.0-SNAPSHOT-all.jar` и перезапустите фазу |
+| `UnsupportedClassVersion` | `java -version` на узле — 1.8.x, `JAVA_HOME` указывает на JDK 8 |
+| Нет локального `results/<runId>` | Для cluster mode это нормально до шага 9. Каталог на HDFS |
+| Preflight: мало места | `hdfs.free_space_gib` в `environment.local.yaml` против фактического `hdfs dfs -df -h` |
+| Много skipped по LLAP | Для Pilot S движок — spark. LLAP смотрят отдельным прогоном после зелёного probe |
+| Очередь отклонила приложение | Очередь `default` (`environment.yaml` / `--queue`) |
 
-**BEST_ORC:** выбор layout по `best_orc_rule` (objective queries, SLA-gate, tie-break); Hive-shared рекомендации **не** берут ZSTD (codec gap ORC 1.5.6).
+Повтор упавшей фазы: дождитесь конечного статуса YARN (`FAILED` / `KILLED`), посмотрите хвост `driver.log`, устраните причину. Generate можно запустить снова (перезапись базы). Materialize и run безопасны для повтора: materialize пропускает готовые маркеры, run создаёт новый `<runId>` и новый `metrics.jsonl`. Старый отчёт при этом остаётся в своём каталоге.
 
-### 8.3. Данные на HDFS
+---
 
-Корень: **`/orc_test`** (`benchmark.hdfs_root` / `hdfs.work_dir`).
+## 12. Чеклист калибровки после Pilot S
 
-| Путь | Содержимое (после CP4+) |
+Заполняется на узле по `<runId>` шага 7.
+
+### 12.1. Старт
+
+| Параметр | Старт |
 |---|---|
-| `/orc_test/<scale>/RAW_ARRAY_BASE/` | Базовый ORC |
-| `/orc_test/<scale>/<EXPERIMENT>_…/` | OVAT layout’ы |
-| `/orc_test/<scale>/refs/` | Справочники JOIN |
-| `/orc_test/state/*.done` | Idempotency markers |
+| Scale | S = 100 GB |
+| `executor_instances` / `cores` / `memory_gib` | 10 / 4 / 16 |
+| `deploy_mode` | cluster |
+| YARN | 6 datanode, Effective_Max 221184 MB (~216 GiB), 67 vCores |
+| Concurrency | 1, 5 |
 
-Проверка **на ноде**:
+Оценка старта: около 40 vCores и 160–168 GiB.
 
-```bash
-hdfs dfs -ls /orc_test
-hdfs dfs -du -h /orc_test/S
-```
-
----
-
-## 9. Troubleshooting
-
-| Симптом | Что проверить |
-|---|---|
-| `UnsupportedClassVersion` / странные ошибки Spark | На ноде для submit используется **Java 8**, не 17. `JAVA_HOME` → JDK 8; `spark-submit` подхватывает его |
-| `Build must run on Java 8` (локально) | `./scripts/with-jdk8.sh …` или toolchain Gradle |
-| Classpath / `ClassNotFoundException` | Fat JAR shadow; на кластере Spark/Hadoop — `provided`; не смешивать чужие Spark jars |
-| `GSSException` / Kerberos | Есть ли валидный Kerberos-контекст на ноде; путь keytab из YAML; для cluster mode — `--principal`/`--keytab` |
-| Queue rejected | В configs queue = **`default`** (не `benchmark`). Проверьте `--queue` и `environment.yaml` |
-| HDFS `Permission denied` / нет `/orc_test` | Principal имеет write на `/orc_test`; `hdfs dfs -ls /orc_test` |
-| HDFS capacity / preflight fail | `hdfs.free_space_gib` vs scale (S/M/L); актуальный снимок в `environment.local.yaml` |
-| Hive JDBC fail | ZK URL из `environment.yaml`; сеть с ноды; ticket ещё валиден |
-| Много `skipped` LLAP | `llap_daemons_running_verified` / live probe; ожидаемо до зелёного probe |
-| Нет `results/` на submit-ноде | Ожидаемо для cluster mode — см. §7.4; смотреть `yarn logs -applicationId <appId>` |
-| `User did not initialize spark context` / exit 13 | Драйвер завершился без SparkContext. В `yarn logs` должна быть строка `yarnAppId=application_...` и следом `SparkSession opened`. Если `yarnAppId=null`, на узле старый jar |
-| `Shutdown hook called before final status was reported` | Драйвер вызвал `SparkContext.stop()` **или** `System.exit(...)` до `finish(...)` у ApplicationMaster. В cluster mode нельзя останавливать сессию и нельзя вызывать `System.exit` из `main` (даже при ошибке — бросайте исключение). Смотрите реальную причину в `yarn logs -applicationId …` (`[fatal]`, stacktrace) |
-| `Task not serializable` / `NotSerializableException: SparkOrcGenerateBackend` | В `mapPartitions` нельзя захватывать backend/`SparkSession`. Нужен static `FlatMapFunction` + serializable `EventRowFactory` |
-| `client deploy mode is disabled` | Уберите `spark.deploy_mode: client` из `environment.local.yaml`; не передавайте `--deploy-mode client` |
-| `spark-submit` / live Kerberos на laptop | Не запускать live с этого host; локально только `--dry-run-submit` / packaging |
-| Phase not implemented | Все фазы CLI (A) готовы CP1–CP8; live на ноде — CP3–CP9 (B) |
-
----
-
-## 10. Чеклист первого дня на ноде
-
-1. [ ] JAR собран на JDK 8 (на этом host / CI).  
-2. [ ] На ноду скопированы jar + `conf/` + `scripts/` (в т.ч. `pilot-s.yaml`, `run-pilot-s.sh`).  
-3. [ ] Создан `conf/environment.local.yaml`.  
-4. [ ] Kerberos-контекст / principal доступны на ноде; keytab по пути из конфига (для cluster `spark-submit`, §4).  
-5. [ ] `java -version` = 1.8.x; `spark-submit` и `hdfs` в PATH.  
-6. [ ] `./scripts/run-preflight.sh` (dry-run) → затем live preflight.  
-7. [ ] Разбор `results/<runId>/` (capabilities / skipped / SUMMARY — §8.2).  
-8. [ ] Pilot S (CP10 B): `generate` → `run-pilot-s.sh` materialize/run → report/final; заполнить §12.  
-9. [ ] Забрать `results/<runId>/` через `fetch-results.sh` / scp.
-
----
-
-## 11. Связанные скрипты (`scripts/`)
-
-| Скрипт | Где запускать | Назначение |
-|---|---|---|
-| `with-jdk8.sh` | Dev / CI | Команда под JDK 8 |
-| `build.sh` | Dev / CI | `clean` + `test` + `shadowJar` |
-| `package-for-cluster.sh` | Dev | Tarball для scp на ноду |
-| `kinit-bench.sh` | *(опционально)* | Helper вне основного flow; runbook **не** требует явного `kinit` (§4) |
-| `run-benchmark.sh` | **Нода** | Основной `spark-submit` wrapper |
-| `run-preflight.sh` | **Нода** | Быстрый `--phase preflight` |
-| `run-pilot-s.sh` | **Нода** (smoke: `--print` / `--dry-run-submit` на dev) | Pilot S узкая матрица (CP10) |
-| `spark-submit-orc-bench.sh` | **Нода** | Низкоуровневый spark-submit |
-| `fetch-results.sh` | **Нода** (или локально, если results уже есть) | Упаковка `results/<runId>`; `--list` / `--latest` |
-
-Все cluster-side скрипты:
-
-- режим submit — **только `deploy_mode=cluster`** (client отключён), queue **`default`**, executors **10×4×16g** (из `environment.yaml` / overrides);
-- **не** содержат секретов — только пути/имена из конфигов;
-- на developer host поддерживают **`--dry-run-submit` / `--dry-run`** (печать команды без submit);
-- при отсутствии `spark-submit`/`hdfs` печатают WARNING/ERROR и отсылают к этому runbook;
-- пишут локальные логи (stdout+stderr через `tee`) в **`logs/<script>-YYYYMMDD-HHMMSS.log`** рядом с корнем репо/бандла; каталог создаётся автоматически. Переопределение: `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`. Вложенные вызовы (`run-preflight` → `run-benchmark`, `build` → `with-jdk8`) не делают повторный tee (`ORC_BENCH_LOGGING=1`).
-
----
-
-## 12. Чеклист калибровки executor_* / concurrency (CP10)
-
-Шаблон **заполняется на ноде после** Pilot S trial (не на developer host). Опирается на план §8.1–§8.2 и `conf/pilot-s.yaml`.
-
-### 12.1. Стартовые значения (до trial)
-
-| Параметр | Старт | Источник |
-|---|---|---|
-| Scale | S = 100 GB | `dataset.yaml` |
-| `executor_instances` | 10 | §8.1 / `environment.yaml` |
-| `executor_cores` | 4 | §8.1 |
-| `executor_memory_gib` | 16 | §8.1 |
-| `deploy_mode` | cluster | configs_final |
-| YARN Effective_Max | 221184 MB (~216 GiB), 67 vCores; 6 DN | подтверждённые факты |
-| Concurrency старт | 1, 5 | §8.2 / pilot-s; candidates ceiling 1…50 в `benchmark.yaml` |
-| Pilot experiments | см. §6.2 / `pilot-s.yaml` | CP10 |
-
-Ожидаемая загрузка старта ≈ **40 vCores / 160–168 GiB** (запас до 67 / 216).
-
-### 12.2. Наблюдения после trial (заполнить на ноде)
+### 12.2. Наблюдения
 
 | Поле | Значение |
 |---|---|
 | Дата / `runId` | ________________ |
-| YARN Current Capacity (queue `default`) mem / vCores | ________ / ________ |
-| Concurrent apps / LLAP queue contention | ________________ |
-| generate(S) wall time | ________ |
-| materialize (pilot) wall time | ________ |
-| run (pilot) wall time / p50 notes | ________ |
-| GC / spill / OO M на executors | ________________ |
-| `results/<runId>/` виден в `yarn logs`? | ________________ |
-| Skipped / failed cells | ________________ |
+| YARN Current Capacity (`default`) mem / vCores | ________ / ________ |
+| generate(S), время | ________ |
+| materialize, время | ________ |
+| run, время и p50 | ________ |
+| GC / spill / OOM | ________________ |
+| Каталог отчёта | `hdfs://orc_test/results/sdp-dzo-lt-omlt/<runId>/` |
+| Skipped / failed | ________________ |
 
-### 12.3. Финальные значения для S (после согласования)
+### 12.3. Что записать в `environment.local.yaml`
 
-| Параметр | Финал S | Примечание |
-|---|---|---|
-| `executor_instances` | ________ | правка → `environment.local.yaml` |
-| `executor_cores` | ________ | |
-| `executor_memory_gib` | ________ | |
-| Concurrency levels (S) | ________ | не слепой набор 1…50; capacity-aware |
-| `deploy_mode` | cluster | client отключён |
+| Параметр | Финал S |
+|---|---|
+| `executor_instances` | ________ |
+| `executor_cores` | ________ |
+| `executor_memory_gib` | ________ |
+| Concurrency для S | ________ |
+| `deploy_mode` | cluster |
 
-### 12.4. Решение о расширении
+### 12.4. Расширение
 
 | Вопрос | Решение |
 |---|---|
-| Расширить physical/engine матрицу beyond Pilot S? | yes / no / later — ________ |
-| Калибровать M = 500 GB отдельно? | yes / no / later — ________ |
-| Калибровать L = 1024 GB отдельно? | yes / no / later — ________ |
-| Тяжёлые concurrency 25/50 на S? | только при явном запасе capacity |
+| Матрица шире Pilot S | yes / no / later — ________ |
+| Отдельная калибровка M = 500 GB | yes / no / later — ________ |
+| Отдельная калибровка L = 1024 GB | yes / no / later — ________ |
+| Concurrency 25 и 50 на S | только при свободной ёмкости очереди |
 
-> **Правило:** финальный sizing и concurrency утверждаются **после** trial. M/L не наследуют слепо значения S.
+M и L калибруют отдельно. Числа S на них сами не переносятся. Перед M или L повторите шаги 3–9 со `--scale M` или `--scale L` и своей очисткой `hdfs://orc_test/M` или `hdfs://orc_test/L` (маркеры `M__*` / `L__*`). Обёртка `run-pilot-s.sh` всегда ставит `--scale S`; для M/L вызывайте `run-benchmark.sh --scale M`.
 
 ---
 
-## 13. Справочник CLI (`orcbench.Main`)
+## Справочник флагов `orcbench.Main`
 
-Флаги передаются **после** jar в `spark-submit` (или через `scripts/run-benchmark.sh` / `run-pilot-s.sh`). Источник: `CliOptions`.
+Флаги передаются через `run-benchmark.sh` / `run-pilot-s.sh` (у `spark-submit-orc-bench.sh` — после `--`).
 
-| Флаг | По умолчанию | Описание |
+| Флаг | По умолчанию | Смысл |
 |---|---|---|
-| `--config` | `conf` | Каталог YAML-контракта |
-| `--env-override` | — | Overlay для `environment` (обычно `conf/environment.local.yaml`) |
-| `--scale` | `S` | `S` / `M` / `L` (100 / 500 / 1024 GB) |
-| `--phase` | `all` | `preflight\|generate\|materialize\|run\|report\|final\|all` |
-| `--experiments` | *(все)* | Фильтр ID экспериментов (comma-separated) |
-| `--engines` | `spark,hive_tez,hive_llap` | Движки (comma-separated) |
-| `--results-dir` | `results` | Каталог отчётов → `results/<runId>/` |
-| `--run-id` | — | Существующий `results/<runId>/` для `--phase report\|final` |
-| `--metrics-jsonl` | — | Явный путь к `metrics.jsonl` (fixtures / dump с ноды) |
-| `--dry-run` | off | План / config-probes без live Spark/Hive/HDFS writes |
-| `--mock-generate` | off | In-memory `FakeGenerateBackend` (local/CI, без HDFS) |
-| `--mock-materialize` | off | In-memory `FakeMaterializeBackend` (local/CI) |
-| `--mock-run` | off | Fake Spark/Hive backends (local/CI, без YARN/HS2) |
-| `--cleanup-layouts` | off | После materialize удалить неretained rewrite layout’ы |
-| `--keep-layouts` | — | ID / имена layout’ов, сохраняемые при cleanup |
-| `--help` / `--version` | — | Справка / версия (picocli) |
+| `--config` | `conf` | Каталог YAML |
+| `--env-override` | — | Overlay, обычно `conf/environment.local.yaml` |
+| `--scale` | `S` | `S` 100 GB, `M` 500 GB, `L` 1024 GB |
+| `--phase` | `all` | `preflight`, `generate`, `materialize`, `run`, `report`, `final`, `all` |
+| `--experiments` | все | Список id через запятую. Пилот подставляет свой |
+| `--engines` | `spark,hive_tez,hive_llap` | Пилот на `run` подставляет `spark` |
+| `--results-dir` | `hdfs://orc_test/results/sdp-dzo-lt-omlt` на YARN | Корень отчётов. `<runId>` добавляет приложение |
+| `--run-id` | новый id | Для `report` и `final` — id прогона шага 7 |
+| `--metrics-jsonl` | — | Явный файл метрик вместо `<results>/<runId>/metrics.jsonl` |
+| `--dry-run` | выкл | План без записи HDFS и без замеров |
+| `--cleanup-layouts` | выкл | После materialize удалить лишние layout’ы (§3.3) |
+| `--keep-layouts` | — | Что оставить при `--cleanup-layouts` |
+| `--mock-generate`, `--mock-materialize`, `--mock-run` | выкл | Память процесса, для локальных тестов |
+| `--help`, `--version` | — | Справка |
 
-Скриптовые флаги обёрток (не уходят в `Main`): `--jar`, `--deploy-mode`, `--queue`, `--dry-run-submit`, `--principal` / `--keytab` / env `ORC_BENCH_*` — см. `run-benchmark.sh --help`.
+Флаги обёртки (в `Main` не попадают): `--jar`, `--deploy-mode`, `--queue`, `--num-executors`, `--executor-cores`, `--executor-memory`, `--principal`, `--keytab`, `--dry-run-submit`. Переменные с тем же смыслом: `ORC_BENCH_JAR`, `ORC_BENCH_DEPLOY_MODE`, `ORC_BENCH_QUEUE`, `ORC_BENCH_NUM_EXECUTORS`, `ORC_BENCH_EXECUTOR_CORES`, `ORC_BENCH_EXECUTOR_MEMORY`, `ORC_BENCH_PRINCIPAL`, `ORC_BENCH_KEYTAB`, `ORC_BENCH_ENV_YAML`, `ORC_BENCH_LOG_DIR`, `ORC_BENCH_LOG_FILE`.

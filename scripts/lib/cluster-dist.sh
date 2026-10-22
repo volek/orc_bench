@@ -43,7 +43,7 @@ orc_bench_localize_driver_files() {
         abs="$(cd "$(dirname "$path")" && pwd)/$base"
         CLUSTER_FILES+=("$abs")
         rewritten+=("$arg" "$base")
-        echo "[cluster-dist] ship $abs → AM cwd as $base ($arg)"
+        echo "[cluster-dist] файл $abs → cwd AM как $base ($arg)"
       else
         echo "ERROR: $arg file not found on the submit host: $path" >&2
         echo "  In cluster mode the driver runs in a YARN container." >&2
@@ -63,9 +63,9 @@ orc_bench_localize_driver_files() {
   fi
 }
 
-# environment.local.yaml is not the file the wrapper reads for --deploy-mode.
-# Reject client there as well, otherwise submit stays cluster while the overlay
-# still asks for client.
+# environment.local.yaml обёртка для --deploy-mode не читает.
+# client в overlay тоже запрещён: иначе submit останется cluster,
+# а файл всё ещё попросит client.
 orc_bench_reject_client_overlay() {
   local i=0
   local n=${#APP_ARGS[@]}

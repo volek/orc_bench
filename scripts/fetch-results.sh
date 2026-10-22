@@ -3,10 +3,9 @@
 # fetch-results.sh — упаковка results/<runId> в .tgz для scp с узла
 #
 # Назначение:
-#   На узле submit после прогона собирает каталог прогона в архив, если
-#   results/<runId> есть локально. В cluster mode файлы --results-dir пишет
-#   драйвер внутри контейнера AM; на submit-ноде каталог часто пуст.
-#   Текст отчёта — в yarn logs (runbook §7.4).
+#   На узле submit после прогона собирает каталог прогона в архив.
+#   Если локального results/<runId> нет, забирает его с HDFS
+#   (hdfs://orc_test/results/<namenode>/<runId>, runbook §7.4).
 #
 # Параметры:
 #   -h, --help            показать эту справку
@@ -48,7 +47,7 @@ LIST=0
 LATEST=0
 
 usage() {
-  sed -n '2,36p' "$0" | sed 's/^# \?//'
+  orc_bench_print_header "$0"
   exit 2
 }
 
@@ -101,9 +100,25 @@ fi
 
 SRC="$RESULTS_DIR/$RUN_ID"
 if [[ ! -d "$SRC" ]]; then
+  hdfs_src="$(orc_bench_hdfs_results_root "$ROOT" || true)"
+  if [[ -n "${hdfs_src:-}" ]] && command -v hdfs >/dev/null 2>&1 \
+      && hdfs dfs -test -e "$hdfs_src/$RUN_ID"; then
+    mkdir -p "$RESULTS_DIR"
+    echo "[fetch-results] hdfs get $hdfs_src/$RUN_ID → $RESULTS_DIR/"
+    hdfs dfs -get "$hdfs_src/$RUN_ID" "$RESULTS_DIR/"
+  fi
+fi
+if [[ ! -d "$SRC" ]]; then
   echo "ERROR: not a directory: $SRC" >&2
-  echo "  Tip: cluster mode writes results/ inside the AM container, not on the submit host." >&2
-  echo "  Driver stdout: yarn logs -applicationId <appId> (runbook §7.4)." >&2
+  hdfs_src="$(orc_bench_hdfs_results_root "$ROOT" || true)"
+  logs_root="$(orc_bench_hdfs_logs_root "$ROOT" || true)"
+  if [[ -n "${hdfs_src:-}" ]]; then
+    echo "  HDFS: hdfs dfs -ls $hdfs_src/$RUN_ID" >&2
+  fi
+  if [[ -n "${logs_root:-}" ]]; then
+    echo "        hdfs dfs -tail $logs_root/$RUN_ID/driver.log" >&2
+  fi
+  echo "  Driver stdout is also in yarn logs -applicationId <appId> (runbook §7.4)." >&2
   exit 1
 fi
 

@@ -7,6 +7,7 @@
 #   По умолчанию добавляет --dry-run (проверки по конфигу через spark-submit).
 #   Живые пробы HDFS/JDBC/Kerberos — на узле кластера с флагом --live.
 #   На машине разработчика: --dry-run-submit.
+#   --live отвязан от терминала так же, как run-benchmark.sh.
 #
 # Параметры:
 #   -h, --help         показать эту справку
@@ -28,15 +29,6 @@
 # =============================================================================
 set -euo pipefail
 
-# If this file (or siblings) were copied with Windows CRLF, bash path errors
-# display as ": No such file or directory" because \r resets the terminal line.
-if grep -q $'\r' "$0" 2>/dev/null; then
-  echo "ERROR: $0 has Windows CRLF line endings." >&2
-  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh scripts/lib/*.sh" >&2
-  echo "  Or:                dos2unix scripts/*.sh scripts/lib/*.sh" >&2
-  exit 1
-fi
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/logging.sh
 source "$ROOT/scripts/lib/logging.sh"
@@ -47,7 +39,7 @@ DRY_RUN_SUBMIT=0
 FORWARD=()
 
 usage() {
-  sed -n '2,28p' "$0" | sed 's/^# \?//'
+  orc_bench_print_header "$0"
   exit 2
 }
 
@@ -73,23 +65,17 @@ if [[ "$DRY_RUN_SUBMIT" -eq 1 ]]; then
   echo "[run-preflight] dry-run-submit: printing spark-submit line only (no cluster)"
 fi
 
-if [[ "$DRY_RUN_SUBMIT" -eq 0 ]] && ! command -v spark-submit >/dev/null 2>&1; then
-  echo "[run-preflight] ERROR: spark-submit not in PATH." >&2
-  echo "  Run on a cluster node after copying jar+conf+scripts." >&2
-  echo "  Local smoke: ./scripts/run-preflight.sh --dry-run-submit" >&2
-  echo "  See docs/Запуск на Hadoop кластере.md" >&2
-  exit 1
+if [[ "$DRY_RUN_SUBMIT" -eq 0 ]]; then
+  orc_bench_require_spark_submit run-preflight \
+    "Run on a cluster node after copying jar+conf+scripts." \
+    "Local smoke: ./scripts/run-preflight.sh --dry-run-submit" \
+    "See docs/Запуск на Hadoop кластере.md" || exit 1
 fi
 
 BENCH="$ROOT/scripts/run-benchmark.sh"
 if [[ ! -f "$BENCH" ]]; then
   echo "ERROR: missing $BENCH" >&2
   echo "  Expected scripts/ next to conf/ and the fat-jar at repo/bundle root." >&2
-  exit 1
-fi
-if grep -q $'\r' "$BENCH" 2>/dev/null; then
-  echo "ERROR: $BENCH has Windows CRLF line endings." >&2
-  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh scripts/lib/*.sh" >&2
   exit 1
 fi
 

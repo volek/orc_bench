@@ -1,5 +1,6 @@
 package orcbench.report;
 
+import orcbench.io.ResultStore;
 import orcbench.layout.ExperimentExpander;
 import orcbench.metrics.MetricsStore;
 import orcbench.model.Models.AggregateStats;
@@ -12,9 +13,6 @@ import orcbench.model.Models.LoadedConfig;
 import orcbench.model.Models.ReportPhaseResult;
 import orcbench.model.Models.RunResult;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -60,10 +58,10 @@ public final class ReportPhase {
         if (inMemoryResults != null) {
             results.addAll(inMemoryResults);
         }
-        Path metricsPath = resolveMetricsPath(resultsDir, out.runId, metricsJsonlPath);
-        if (results.isEmpty() && metricsPath != null && Files.isRegularFile(metricsPath)) {
-            results.addAll(MetricsStore.readJsonl(metricsPath.toString()));
-            out.notes.add("loaded metrics from " + metricsPath.toAbsolutePath());
+        String metricsPath = resolveMetricsPath(resultsDir, out.runId, metricsJsonlPath);
+        if (results.isEmpty() && metricsPath != null && ResultStore.isFile(metricsPath)) {
+            results.addAll(MetricsStore.readJsonl(metricsPath));
+            out.notes.add("loaded metrics from " + metricsPath);
         } else if (results.isEmpty() && dryRun) {
             out.notes.add("dry-run report: no metrics.jsonl — writing empty aggregates / plan only");
         } else if (results.isEmpty() && metricsJsonlPath != null) {
@@ -72,7 +70,7 @@ public final class ReportPhase {
             out.notes.add("warning: no metrics rows; reports will be sparse "
                     + "(pass --metrics-jsonl, --run-id with metrics.jsonl, or --dry-run)");
         }
-        out.metricsJsonlPath = metricsPath == null ? null : metricsPath.toString();
+        out.metricsJsonlPath = metricsPath;
         out.resultRows = results.size();
 
         List<AggregateStats> aggregates = MetricsStore.aggregate(results, slaMs);
@@ -151,9 +149,9 @@ public final class ReportPhase {
         }
 
         boolean rewriteJsonl = metricsPath == null
-                || !Files.isRegularFile(metricsPath)
+                || !ResultStore.isFile(metricsPath)
                 || (inMemoryResults != null && !inMemoryResults.isEmpty());
-        Path dir = ReportWriter.writeRun(
+        String dir = ReportWriter.writeRun(
                 resultsDir,
                 out.runId,
                 out.scale,
@@ -166,22 +164,22 @@ public final class ReportPhase {
                 out.notes,
                 slaMs,
                 rewriteJsonl && !results.isEmpty());
-        out.outputDir = dir.toString();
+        out.outputDir = dir;
         if (out.metricsJsonlPath == null) {
-            Path written = dir.resolve("metrics.jsonl");
-            if (Files.isRegularFile(written)) {
-                out.metricsJsonlPath = written.toString();
+            String written = ResultStore.child(dir, "metrics.jsonl");
+            if (ResultStore.isFile(written)) {
+                out.metricsJsonlPath = written;
             }
         }
         return out;
     }
 
-    public static Path resolveMetricsPath(String resultsDir, String runId, String metricsJsonlPath) {
+    public static String resolveMetricsPath(String resultsDir, String runId, String metricsJsonlPath) {
         if (metricsJsonlPath != null && !metricsJsonlPath.trim().isEmpty()) {
-            return Paths.get(metricsJsonlPath);
+            return metricsJsonlPath.trim();
         }
         if (runId != null && !runId.trim().isEmpty()) {
-            return Paths.get(resultsDir == null ? "results" : resultsDir, runId, "metrics.jsonl");
+            return ResultStore.child(resultsDir == null ? "results" : resultsDir, runId, "metrics.jsonl");
         }
         return null;
     }

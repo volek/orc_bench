@@ -1,5 +1,6 @@
 package orcbench.report;
 
+import orcbench.io.ResultStore;
 import orcbench.metrics.MetricsStore;
 import orcbench.model.Models.AggregateStats;
 import orcbench.model.Models.BestOrcChoice;
@@ -7,10 +8,6 @@ import orcbench.model.Models.CapabilityReport;
 import orcbench.model.Models.ExperimentInstance;
 import orcbench.model.Models.RunResult;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -24,7 +21,7 @@ import java.util.Map;
 public final class ReportWriter {
     private ReportWriter() {}
 
-    public static Path writeRun(
+    public static String writeRun(
             String resultsDir,
             String runId,
             String scale,
@@ -38,22 +35,22 @@ public final class ReportWriter {
             long slaThresholdMs,
             boolean rewriteMetricsJsonl) throws Exception {
 
-        Path dir = Paths.get(resultsDir == null ? "results" : resultsDir, runId);
-        Files.createDirectories(dir);
+        String dir = ResultStore.child(resultsDir == null ? "results" : resultsDir, runId);
+        ResultStore.mkdirs(dir);
 
         if (rewriteMetricsJsonl && results != null && !results.isEmpty()) {
-            Path metrics = dir.resolve("metrics.jsonl");
-            Files.deleteIfExists(metrics);
-            MetricsStore.appendJsonl(metrics.toString(), results);
+            String metrics = ResultStore.child(dir, "metrics.jsonl");
+            ResultStore.deleteIfExists(metrics);
+            MetricsStore.appendJsonl(metrics, results);
         }
 
-        writeSummaryCsv(dir.resolve("summary.csv"), aggregates);
-        writeSkippedTsv(dir.resolve("skipped.tsv"), skipped);
+        writeSummaryCsv(ResultStore.child(dir, "summary.csv"), aggregates);
+        writeSkippedTsv(ResultStore.child(dir, "skipped.tsv"), skipped);
         if (finalCells != null && !finalCells.isEmpty()) {
-            writeFinalComparisonTsv(dir.resolve("final_comparison.tsv"), finalCells, bestOrc);
+            writeFinalComparisonTsv(ResultStore.child(dir, "final_comparison.tsv"), finalCells, bestOrc);
         }
         writeSummaryTxt(
-                dir.resolve("SUMMARY.txt"),
+                ResultStore.child(dir, "SUMMARY.txt"),
                 runId,
                 scale,
                 results == null ? 0 : results.size(),
@@ -66,11 +63,11 @@ public final class ReportWriter {
                 slaThresholdMs,
                 aggregates);
 
-        System.out.println("[report] wrote " + dir.toAbsolutePath());
+        System.out.println("[report] wrote " + dir);
         return dir;
     }
 
-    private static void writeSummaryCsv(Path path, List<AggregateStats> aggregates) throws Exception {
+    private static void writeSummaryCsv(String path, List<AggregateStats> aggregates) throws Exception {
         StringBuilder csv = new StringBuilder();
         csv.append("experimentId,variantLabel,engine,queryId,concurrency,cacheState,")
                 .append("n,avgMs,p50Ms,p95Ms,p99Ms,slaSuccessRate,scanRatio,resultHash,slaPass\n");
@@ -95,10 +92,10 @@ public final class ReportWriter {
                         .append(slaPass).append('\n');
             }
         }
-        Files.write(path, csv.toString().getBytes(StandardCharsets.UTF_8));
+        ResultStore.writeUtf8(path, csv.toString());
     }
 
-    private static void writeSkippedTsv(Path path, List<String[]> skipped) throws Exception {
+    private static void writeSkippedTsv(String path, List<String[]> skipped) throws Exception {
         StringBuilder sb = new StringBuilder();
         sb.append("experiment\treason\n");
         if (skipped != null) {
@@ -110,11 +107,11 @@ public final class ReportWriter {
                 sb.append(row.length > 1 && row[1] != null ? row[1] : "").append('\n');
             }
         }
-        Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8));
+        ResultStore.writeUtf8(path, sb.toString());
     }
 
     private static void writeFinalComparisonTsv(
-            Path path, List<ExperimentInstance> finalCells, BestOrcChoice bestOrc) throws Exception {
+            String path, List<ExperimentInstance> finalCells, BestOrcChoice bestOrc) throws Exception {
         StringBuilder sb = new StringBuilder();
         sb.append("engineProfile\tengine\tlayoutPath\tqueries\tskipReason\n");
         for (ExperimentInstance i : finalCells) {
@@ -131,11 +128,11 @@ public final class ReportWriter {
                     .append(i.queries == null ? 0 : i.queries.size()).append('\t')
                     .append(nullSafe(i.skipReason)).append('\n');
         }
-        Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8));
+        ResultStore.writeUtf8(path, sb.toString());
     }
 
     private static void writeSummaryTxt(
-            Path path,
+            String path,
             String runId,
             String scale,
             int results,
@@ -209,7 +206,7 @@ public final class ReportWriter {
                 summary.append("note: ").append(n).append('\n');
             }
         }
-        Files.write(path, summary.toString().getBytes(StandardCharsets.UTF_8));
+        ResultStore.writeUtf8(path, summary.toString());
     }
 
     private static boolean overallSla(List<AggregateStats> aggregates) {

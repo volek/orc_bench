@@ -7,6 +7,8 @@
 #   с --scale S и нужным --phase. Живые фазы — только на узле Hadoop/SDP.
 #   На машине разработчика: --dry-run-submit | --print | --help.
 #   Старт: 10×4×16g, deploy_mode=cluster; concurrency 1,5 — калибровать на узле.
+#   Живой запуск отвязан от терминала (см. run-benchmark.sh): скрипт выходит
+#   после application id, приложение на YARN продолжается.
 #
 # Параметры:
 #   -h, --help              показать эту справку
@@ -50,23 +52,17 @@ PRINT_ONLY=0
 FORWARD=()
 
 usage() {
-  sed -n '2,38p' "$0" | sed 's/^# \?//'
+  orc_bench_print_header "$0"
   exit 2
 }
 
-yaml_csv() {
-  local key="$1"
-  [[ -f "$PILOT_YAML" ]] || {
-    echo "[run-pilot-s] ERROR: missing $PILOT_YAML" >&2
-    exit 1
-  }
-  # key: VALUE  (single-line CSV)
-  grep -E "^[[:space:]]*${key}:" "$PILOT_YAML" | head -1 \
-    | sed -E "s/^[^:]+:[[:space:]]*//;s/[\"']//g;s/[[:space:]]*$//"
-}
+if [[ ! -f "$PILOT_YAML" ]]; then
+  echo "[run-pilot-s] ERROR: missing $PILOT_YAML" >&2
+  exit 1
+fi
 
-MATERIALIZE_EXPS="$(yaml_csv experiments_materialize_csv)"
-RUN_EXPS="$(yaml_csv experiments_run_csv)"
+MATERIALIZE_EXPS="$(orc_bench_yaml_value experiments_materialize_csv "$PILOT_YAML")"
+RUN_EXPS="$(orc_bench_yaml_value experiments_run_csv "$PILOT_YAML")"
 MATERIALIZE_EXPS="${MATERIALIZE_EXPS:-MINMAX_SORT,BLOOM_USER,PARTITIONING}"
 RUN_EXPS="${RUN_EXPS:-ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION}"
 
@@ -116,7 +112,7 @@ case "$PHASE" in
     ARGS+=(--engines spark --experiments "$RUN_EXPS")
     ;;
   generate|preflight|report|final|all)
-    # generate/preflight/report/final: no pilot experiment filter
+    # generate / preflight / report / final: фильтр экспериментов пилота не нужен
     ;;
   *)
     echo "[run-pilot-s] ERROR: unsupported --phase '$PHASE'" >&2
@@ -129,13 +125,12 @@ if [[ "$DRY_RUN_SUBMIT" -eq 1 ]]; then
   echo "[run-pilot-s] dry-run-submit: printing spark-submit line only (no cluster)"
 fi
 
-if [[ "$DRY_RUN_SUBMIT" -eq 0 ]] && ! command -v spark-submit >/dev/null 2>&1; then
-  echo "[run-pilot-s] ERROR: spark-submit not in PATH." >&2
-  echo "  Live pilot must run on a cluster node after copying jar+conf+scripts." >&2
-  echo "  Local smoke: ./scripts/run-pilot-s.sh --print" >&2
-  echo "               ./scripts/run-pilot-s.sh --dry-run-submit --phase run" >&2
-  echo "  See docs/Запуск на Hadoop кластере.md §6.2 / §12" >&2
-  exit 1
+if [[ "$DRY_RUN_SUBMIT" -eq 0 ]]; then
+  orc_bench_require_spark_submit run-pilot-s \
+    "Live pilot must run on a cluster node after copying jar+conf+scripts." \
+    "Local smoke: ./scripts/run-pilot-s.sh --print" \
+    "               ./scripts/run-pilot-s.sh --dry-run-submit --phase run" \
+    "See docs/Запуск на Hadoop кластере.md §6.2 / §12" || exit 1
 fi
 
 echo "[run-pilot-s] phase=$PHASE scale=S"

@@ -5,6 +5,8 @@
 # Назначение:
 #   Формирует и запускает spark-submit с классом orcbench.Main.
 #   Живой submit (spark-submit, HDFS, Kerberos) — только на узле Hadoop/SDP.
+#   Submit отвязан от терминала: скрипт выходит после application id в YARN,
+#   ApplicationMaster продолжает работу после обрыва SSH.
 #   С ноутбука разработчика: --dry-run-submit (печать команды без submit).
 #   См. docs/Запуск на Hadoop кластере.md
 #
@@ -55,14 +57,6 @@
 # =============================================================================
 set -euo pipefail
 
-# CRLF copies fail with cryptic ": No such file or directory" (\r hides the path).
-if grep -q $'\r' "$0" 2>/dev/null; then
-  echo "ERROR: $0 has Windows CRLF line endings." >&2
-  echo "  Fix on this node:  sed -i 's/\\r\$//' scripts/*.sh scripts/lib/*.sh" >&2
-  echo "  Or:                dos2unix scripts/*.sh scripts/lib/*.sh" >&2
-  exit 1
-fi
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/logging.sh
 source "$ROOT/scripts/lib/logging.sh"
@@ -85,69 +79,27 @@ ENV_YAML="${ORC_BENCH_ENV_YAML:-$ROOT/conf/environment.yaml}"
 APP_ARGS=()
 
 usage() {
-  sed -n '2,55p' "$0" | sed 's/^# \?//'
+  orc_bench_print_header "$0"
   exit 2
 }
 
-yaml_value() {
-  local key="$1"
-  local yaml="${2:-$ENV_YAML}"
-  [[ -f "$yaml" ]] || return 0
-  grep -E "^[[:space:]]*${key}:" "$yaml" | head -1 \
-    | sed -E "s/.*:[\"']?[[:space:]]*//;s/[\"'][[:space:]]*$//;s/[[:space:]]*$//" || true
-}
-
-# Prefer CLI/env; else conf/environment.yaml; else hardcoded configs_final defaults.
-apply_yaml_defaults() {
-  if [[ -z "$MASTER" ]]; then
-    MASTER="$(yaml_value master)"
-    MASTER="${MASTER:-yarn}"
-  fi
-  if [[ -z "$DEPLOY_MODE" ]]; then
-    DEPLOY_MODE="$(yaml_value deploy_mode)"
-    DEPLOY_MODE="${DEPLOY_MODE:-cluster}"
-  fi
-  if [[ -z "$QUEUE" ]]; then
-    QUEUE="$(yaml_value queue)"
-    QUEUE="${QUEUE:-default}"
-  fi
-  if [[ -z "$NUM_EXECUTORS" ]]; then
-    NUM_EXECUTORS="$(yaml_value executor_instances)"
-    NUM_EXECUTORS="${NUM_EXECUTORS:-10}"
-  fi
-  if [[ -z "$EXECUTOR_CORES" ]]; then
-    EXECUTOR_CORES="$(yaml_value executor_cores)"
-    EXECUTOR_CORES="${EXECUTOR_CORES:-4}"
-  fi
-  if [[ -z "$EXECUTOR_MEMORY" ]]; then
-    local gib
-    gib="$(yaml_value executor_memory_gib)"
-    if [[ -n "$gib" ]]; then
-      EXECUTOR_MEMORY="${gib}g"
-    else
-      EXECUTOR_MEMORY="16g"
+# Если --results-dir не задан, подставляем hdfs://orc_test/results/<namenode>.
+# Тот же каталог выбирает Java внутри YARN; здесь путь виден в строке spark-submit.
+ensure_hdfs_results_dir() {
+  local i
+  for ((i = 0; i < ${#APP_ARGS[@]}; i++)); do
+    if [[ "${APP_ARGS[$i]}" == "--results-dir" ]]; then
+      return 0
     fi
+  done
+  local dest
+  dest="$(orc_bench_hdfs_results_root "$ROOT" || true)"
+  if [[ -z "$dest" ]]; then
+    echo "[run-benchmark] WARNING: namenode_uri is empty; results stay on the AM local disk." >&2
+    return 0
   fi
-  if [[ -z "$JAR" ]]; then
-    if [[ -f "$ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar" ]]; then
-      JAR="$ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar"
-    else
-      JAR="$ROOT/build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar"
-    fi
-  fi
-}
-
-load_kerberos_from_yaml() {
-  if [[ -z "$PRINCIPAL" ]]; then
-    PRINCIPAL="$(yaml_value runner_principal)"
-  fi
-  if [[ -z "$KEYTAB" ]]; then
-    local kt
-    kt="$(yaml_value keytab_path)"
-    if [[ -n "$kt" ]]; then
-      KEYTAB="${kt/#\~/$HOME}"
-    fi
-  fi
+  APP_ARGS+=(--results-dir "$dest")
+  echo "[run-benchmark] results-dir=$dest"
 }
 
 warn_not_cluster() {
@@ -196,30 +148,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-apply_yaml_defaults
+orc_bench_apply_submit_defaults "$ENV_YAML"
 warn_not_cluster
-load_kerberos_from_yaml
+orc_bench_load_kerberos "$ENV_YAML"
+orc_bench_require_jar || exit 1
+orc_bench_require_cluster_mode || exit $?
 
-if [[ ! -f "$JAR" ]]; then
-  echo "ERROR: fat jar not found: $JAR" >&2
-  echo "  Expected (cluster bundle): $ROOT/orc-bench-0.1.0-SNAPSHOT-all.jar" >&2
-  echo "  Expected (git checkout):   $ROOT/build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar" >&2
-  echo "  Override: --jar PATH  or  ORC_BENCH_JAR=PATH" >&2
-  echo "  Build on JDK 8: ./scripts/build.sh  (or re-copy jar onto this node)" >&2
-  exit 1
-fi
-
-case "$DEPLOY_MODE" in
-  cluster) ;;
-  client)
-    echo "ERROR: client deploy mode is disabled." >&2
-    echo "  Submit is cluster-only. Remove spark.deploy_mode: client from" >&2
-    echo "  environment.local.yaml and do not pass --deploy-mode client." >&2
-    exit 2 ;;
-  *)
-    echo "ERROR: --deploy-mode must be cluster (got: $DEPLOY_MODE)" >&2
-    exit 2 ;;
-esac
+ensure_hdfs_results_dir
 
 # shellcheck source=lib/cluster-dist.sh
 source "$ROOT/scripts/lib/cluster-dist.sh"
@@ -237,14 +172,7 @@ SUBMIT=(
 )
 
 if [[ ${#CLUSTER_FILES[@]} -gt 0 ]]; then
-  files_csv=""
-  for f in "${CLUSTER_FILES[@]}"; do
-    if [[ -n "$files_csv" ]]; then
-      files_csv+=","
-    fi
-    files_csv+="$f"
-  done
-  SUBMIT+=(--files "$files_csv")
+  SUBMIT+=(--files "$(orc_bench_cluster_files_csv)")
 fi
 
 if [[ -n "$PRINCIPAL" && -n "$KEYTAB" ]]; then
@@ -257,6 +185,9 @@ elif [[ "$DEPLOY_MODE" == "cluster" ]]; then
   echo "  ORC_BENCH_PRINCIPAL / ORC_BENCH_KEYTAB or ensure conf/environment.yaml paths exist." >&2
 fi
 
+SUBMIT+=(
+  --conf spark.yarn.submit.waitAppCompletion=false
+)
 SUBMIT+=("$JAR")
 SUBMIT+=("${APP_ARGS[@]}")
 
@@ -270,10 +201,11 @@ if [[ "$DRY_RUN_SUBMIT" -eq 1 ]]; then
   exit 0
 fi
 
-if ! command -v spark-submit >/dev/null 2>&1; then
-  echo "ERROR: spark-submit not found. Run this script on a cluster node with Spark 3.2." >&2
-  echo "  Local smoke without submit: add --dry-run-submit" >&2
-  exit 1
-fi
+orc_bench_require_spark_submit run-benchmark \
+  "Run this script on a cluster node with Spark 3.2." \
+  "Local smoke without submit: add --dry-run-submit" || exit 1
 
-exec "${SUBMIT[@]}"
+# shellcheck source=lib/detach-submit.sh
+source "$ROOT/scripts/lib/detach-submit.sh"
+detach_log="${ORC_BENCH_LOG_FILE:-$ROOT/logs/run-benchmark-detached.log}"
+orc_bench_detach_submit "$detach_log" -- "${SUBMIT[@]}"

@@ -38,7 +38,10 @@ public class CliOptions implements Callable<CliOptions.CliArgs> {
     @Option(names = "--engines", description = "Comma-separated: spark,hive_tez,hive_llap")
     String engines = "spark,hive_tez,hive_llap";
 
-    @Option(names = "--results-dir", description = "Results output directory")
+    @Option(names = "--results-dir",
+            description = "Results directory. On a YARN cluster driver the default "
+                    + "results is rewritten to hdfs://orc_test/results/<namenode>. "
+                    + "Pass an explicit hdfs:// path to override.")
     String resultsDir = "results";
 
     @Option(names = "--run-id",

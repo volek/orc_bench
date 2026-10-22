@@ -42,7 +42,7 @@ public final class Models {
         public long slaMeanLatencyMs = 3000L;
         public String isolation;
         public boolean requireResultEquivalence = true;
-        public String hdfsRoot = "/orc_test";
+        public String hdfsRoot = "hdfs://orc_test";
         public String generatedHiveDdl = "generated/hive-table.sql";
         public List<String> derivedPartitionColumns = new ArrayList<>();
     }
@@ -316,7 +316,7 @@ public final class Models {
         public Integer defaultReplication;
         public Integer blockSizeMib;
         public Long freeSpaceGib;
-        public String workDir = "/orc_test";
+        public String workDir = "hdfs://orc_test";
         public Boolean writeVerified;
         public Boolean shortCircuitSupported;
         public Boolean shortCircuitEnabled;

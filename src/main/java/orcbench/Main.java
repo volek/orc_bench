@@ -2,6 +2,8 @@ package orcbench;
 
 import orcbench.config.CliOptions;
 import orcbench.config.ConfigLoader;
+import orcbench.io.DriverLog;
+import orcbench.io.ResultStore;
 import orcbench.engine.hive.HiveJdbcRunner;
 import orcbench.engine.spark.SparkQueryRunner;
 import orcbench.generate.DatasetGenerator;
@@ -21,7 +23,6 @@ import orcbench.preflight.PreflightProbe;
 import orcbench.preflight.PreflightReportWriter;
 import orcbench.report.ReportPhase;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -85,10 +86,22 @@ public final class Main {
                 + " spark.deployMode=" + cfg.environment.environment.spark.deployMode
                 + " bestOrc.objective=" + cfg.benchmark.bestOrcRule.objectiveQueries);
 
+        cli.resultsDir = ResultStore.resolveResultsDir(cli.resultsDir, cfg);
+        if (cli.runId == null || cli.runId.trim().isEmpty()) {
+            cli.runId = ResultStore.newRunId();
+        }
+        System.out.println("[orc-bench] resolved resultsDir=" + cli.resultsDir
+                + " runId=" + cli.runId);
+
         try {
+            String logDir = ResultStore.onHdfs(cli.resultsDir)
+                    ? ResultStore.hdfsLogsRoot(cfg)
+                    : cli.resultsDir;
+            DriverLog.attach(logDir, cli.runId);
             SparkSessionSupport.openYarnDriver(cfg);
             runPhases(cli, cfg);
         } finally {
+            DriverLog.close();
             SparkSessionSupport.closeYarnDriver();
         }
     }
@@ -373,10 +386,12 @@ public final class Main {
         PreflightProbe.enforceFailPolicy(report, cfg.environment.environment.preflight);
         PreflightProbe.printReport(report);
 
-        String runId = Instant.now().toString().replace(':', '-')
-                + "_" + UUID.randomUUID().toString().substring(0, 8);
-        Path out = PreflightReportWriter.write(cli.resultsDir, runId, report, cli.scale);
-        System.out.println("[orc-bench] preflight artefacts: " + out.toAbsolutePath());
+        String runId = cli.runId;
+        if (runId == null || runId.trim().isEmpty()) {
+            runId = ResultStore.newRunId();
+        }
+        String out = PreflightReportWriter.write(cli.resultsDir, runId, report, cli.scale);
+        System.out.println("[orc-bench] preflight artefacts: " + out);
         System.out.println("[orc-bench] skip-matrix cells=" + report.skippedExperiments.size());
         return report;
     }

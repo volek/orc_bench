@@ -17,10 +17,17 @@
 #   ORC_BENCH_LOG_FILE  явный путь к лог-файлу
 #                       (иначе <dir>/<script>-YYYYMMDD-HHMMSS.log)
 #   ORC_BENCH_LOGGING=1 уже включено (вложенные скрипты пропускают tee)
+#
+# Вместе с этим файлом подключается common.sh (YAML, jar, CRLF, --help).
 # =============================================================================
 
+# shellcheck source=common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+# Проверяем вызывающий скрипт ($0), в том числе при вложенном source.
+orc_bench_reject_crlf "$0"
+
 orc_bench_enable_logging() {
-  # Already under a top-level tee (nested script / re-exec child).
+  # Уже под верхним tee: вложенный скрипт или повторный запуск через re-exec.
   if [[ "${ORC_BENCH_LOGGING:-0}" == "1" ]]; then
     return 0
   fi
@@ -33,7 +40,7 @@ orc_bench_enable_logging() {
     return 1
   fi
 
-  # Absolute path so re-exec works after cd.
+  # Абсолютный путь: повторный запуск после cd не теряет скрипт.
   if [[ "$self" != /* ]]; then
     self="$(cd "$(dirname "$self")" && pwd)/$(basename "$self")"
   fi
@@ -54,7 +61,7 @@ orc_bench_enable_logging() {
   if [[ -z "$log_file" ]]; then
     log_file="${log_dir}/${script_base}-$(date +%Y%m%d-%H%M%S).log"
   fi
-  # Absolute log path for clear messages / nested inheritance.
+  # Абсолютный путь лога — его наследуют вложенные скрипты.
   if [[ "$log_file" != /* ]]; then
     mkdir -p "$(dirname "$log_file")"
     log_file="$(cd "$(dirname "$log_file")" && pwd)/$(basename "$log_file")"
@@ -68,13 +75,95 @@ orc_bench_enable_logging() {
 
   echo "[logging] log file: $log_file" | tee -a "$log_file"
 
+  local hdfs_dest=""
+  hdfs_dest="$(orc_bench_hdfs_log_dest "$log_file" "$root" || true)"
+  local sync_pid=""
+  if [[ -n "$hdfs_dest" ]] && command -v hdfs >/dev/null 2>&1; then
+    echo "[logging] hdfs log: $hdfs_dest" | tee -a "$log_file"
+    orc_bench_hdfs_put_log "$log_file" "$hdfs_dest"
+    (
+      while true; do
+        sleep 30
+        orc_bench_hdfs_put_log "$log_file" "$hdfs_dest"
+      done
+    ) &
+    sync_pid=$!
+  fi
+
   local rc=0
   set +e
-  # Child inherits ORC_BENCH_LOGGING=1 and skips a second tee.
+  # Дочерний процесс получает ORC_BENCH_LOGGING=1 и не открывает второй tee.
   "$self" "$@" 2>&1 | tee -a "$log_file"
   rc=${PIPESTATUS[0]}
   set -e
 
+  if [[ -n "$sync_pid" ]]; then
+    kill "$sync_pid" >/dev/null 2>&1 || true
+    wait "$sync_pid" >/dev/null 2>&1 || true
+    orc_bench_hdfs_put_log "$log_file" "$hdfs_dest"
+  fi
+
   echo "[logging] finished (exit=${rc}): $log_file" | tee -a "$log_file"
+  if [[ -n "$hdfs_dest" ]]; then
+    orc_bench_hdfs_put_log "$log_file" "$hdfs_dest"
+    echo "[logging] hdfs log: $hdfs_dest" | tee -a "$log_file"
+  fi
   exit "$rc"
+}
+
+# Хост из namenode_uri (hdfs://sdp-dzo-lt-omlt → sdp-dzo-lt-omlt). Пусто, если неизвестен.
+orc_bench_hdfs_namenode_host() {
+  local root="${1:-}"
+  if [[ -z "$root" ]]; then
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  fi
+  local yaml="$root/conf/environment.yaml"
+  local nn host
+  nn="$(orc_bench_yaml_value namenode_uri "$yaml")"
+  [[ -n "$nn" ]] || return 0
+  nn="${nn%/}"
+  host="${nn#*://}"
+  host="${host%%/*}"
+  [[ -n "$host" ]] || return 0
+  printf '%s\n' "$host"
+}
+
+# hdfs://orc_test/results/<namenode>
+orc_bench_hdfs_results_root() {
+  local root="${1:-}"
+  if [[ -z "$root" ]]; then
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  fi
+  local host
+  host="$(orc_bench_hdfs_namenode_host "$root" || true)"
+  [[ -n "$host" ]] || return 0
+  printf 'hdfs://orc_test/results/%s\n' "$host"
+}
+
+# hdfs://orc_test/logs/<namenode>
+orc_bench_hdfs_logs_root() {
+  local root="${1:-}"
+  local host
+  host="$(orc_bench_hdfs_namenode_host "$root" || true)"
+  [[ -n "$host" ]] || return 0
+  printf 'hdfs://orc_test/logs/%s\n' "$host"
+}
+
+orc_bench_hdfs_log_dest() {
+  local log_file="${1:-}"
+  local root="${2:-}"
+  [[ -n "$log_file" ]] || return 0
+  local logs
+  logs="$(orc_bench_hdfs_logs_root "$root" || true)"
+  [[ -n "$logs" ]] || return 0
+  printf '%s/%s\n' "$logs" "$(basename "$log_file")"
+}
+
+orc_bench_hdfs_put_log() {
+  local log_file="${1:-}"
+  local dest="${2:-}"
+  [[ -n "$log_file" && -n "$dest" && -f "$log_file" ]] || return 0
+  command -v hdfs >/dev/null 2>&1 || return 0
+  hdfs dfs -mkdir -p "$(dirname "$dest")" >/dev/null 2>&1 || true
+  hdfs dfs -put -f "$log_file" "$dest" >/dev/null 2>&1 || true
 }

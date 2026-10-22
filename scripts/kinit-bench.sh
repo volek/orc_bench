@@ -47,15 +47,8 @@ KEYTAB="${ORC_BENCH_KEYTAB:-}"
 DRY_RUN=0
 
 usage() {
-  sed -n '2,36p' "$0" | sed 's/^# \?//'
+  orc_bench_print_header "$0"
   exit 2
-}
-
-yaml_value() {
-  local key="$1"
-  [[ -f "$YAML" ]] || return 0
-  grep -E "^[[:space:]]*${key}:" "$YAML" | head -1 \
-    | sed -E "s/.*:[\"']?[[:space:]]*//;s/[\"'][[:space:]]*$//;s/[[:space:]]*$//" || true
 }
 
 while [[ $# -gt 0 ]]; do
@@ -70,10 +63,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$PRINCIPAL" ]]; then
-  PRINCIPAL="$(yaml_value runner_principal)"
+  PRINCIPAL="$(orc_bench_yaml_value runner_principal "$YAML")"
 fi
 if [[ -z "$KEYTAB" ]]; then
-  KEYTAB="$(yaml_value keytab_path)"
+  KEYTAB="$(orc_bench_yaml_value keytab_path "$YAML")"
 fi
 
 KEYTAB="${KEYTAB/#\~/$HOME}"
