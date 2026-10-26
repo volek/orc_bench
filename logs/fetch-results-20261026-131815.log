@@ -1,0 +1,7 @@
+[logging] log file: /home/portos/orc_bench/orc-bench/logs/fetch-results-20261026-131815.log
+[logging] hdfs log: hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/fetch-results-20261026-131815.log
+[fetch-results] hdfs get hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-22T14-49-57.587Z_cf0ed7fa → /home/portos/orc_bench/orc-bench/results/
+[fetch-results] packed /home/portos/orc_bench/orc-bench/results/2026-10-22T14-49-57.587Z_cf0ed7fa → /home/portos/orc_bench/orc-bench/results-2026-10-22T14-49-57.587Z_cf0ed7fa.tgz
+  scp USER@NODE:/home/portos/orc_bench/orc-bench/results-2026-10-22T14-49-57.587Z_cf0ed7fa.tgz .
+[logging] finished (exit=0): /home/portos/orc_bench/orc-bench/logs/fetch-results-20261026-131815.log
+[logging] hdfs log: hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/fetch-results-20261026-131815.log
