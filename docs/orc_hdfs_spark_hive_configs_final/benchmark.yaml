@@ -492,6 +492,7 @@ benchmark:
       - Q_SESSION_EQ
     - id: HIVE_MATERIALIZED_VIEW
       status: excluded_from_sm_uko
+      reason: materialized views are not supported on this cluster, and the log has no such query
       requires:
       - materialized_views_supported
       queries: []
@@ -519,7 +520,6 @@ benchmark:
     - Q_UNFILTERED
     excluded_queries:
       Q_SESSION_EQ_NARROW: column-pruning contrast only
-      HIVE_MATERIALIZED_VIEW: no materialized views on this cluster, and the log has no such query
   orc_engine_track:
     note: Hive/LLAP is not how this index is queried. Profiles stay for a separate ORC comparison.
     engines:
