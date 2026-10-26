@@ -50,8 +50,8 @@ query_suite:
     - FLAT
     sql: |
       SELECT COUNT(*) FROM ${table}
-      WHERE __time >= TIMESTAMP '${time_start}'
-        AND __time < TIMESTAMP '${time_end}'
+      WHERE `__time` >= TIMESTAMP '${time_start}'
+        AND `__time` < TIMESTAMP '${time_end}'
   - id: Q01_PARTITIONED
     description: Partition pruning on derived event_date; only use tables physically partitioned by date
     representations:

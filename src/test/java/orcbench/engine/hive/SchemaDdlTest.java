@@ -28,6 +28,9 @@ class SchemaDdlTest {
                 Arrays.asList("event_date"),
                 Collections.singletonList(new String[]{"epk_id", "STRING"}));
         assertTrue(sql.contains("CREATE EXTERNAL TABLE events"));
+        assertTrue(sql.contains("`__time` TIMESTAMP"), sql);
+        assertFalse(sql.contains("\n  __time TIMESTAMP"), sql);
+        assertTrue(sql.contains("userLogin STRING"));
         assertTrue(sql.contains("epk_id STRING"));
         assertTrue(sql.contains("PARTITIONED BY (event_date STRING)"));
         assertTrue(sql.contains("LOCATION '/orc_test/S/RAW_ARRAY_BASE'"));

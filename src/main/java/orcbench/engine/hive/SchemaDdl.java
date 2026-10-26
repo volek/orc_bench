@@ -36,11 +36,11 @@ public final class SchemaDdl {
             }
             int colon = indexOfTopLevel(trimmed, ':');
             if (colon < 0) {
-                cols.add(trimmed);
+                cols.add(quoteHiveIdent(trimmed));
             } else {
                 String name = trimmed.substring(0, colon).trim();
                 String type = trimmed.substring(colon + 1).trim();
-                cols.add(name + " " + toHiveType(type));
+                cols.add(quoteHiveIdent(name) + " " + toHiveType(type));
             }
         }
         return joinColumns(cols);
@@ -61,14 +61,14 @@ public final class SchemaDdl {
                 if (cols.length() > 0) {
                     cols.append(",\n  ");
                 }
-                cols.append(c[0]).append(' ').append(c[1]);
+                cols.append(quoteHiveIdent(c[0])).append(' ').append(c[1]);
             }
         }
         String partClause = "";
         if (partitions != null && !partitions.isEmpty()) {
             List<String> parts = new ArrayList<String>();
             for (String p : partitions) {
-                parts.add(p + " STRING");
+                parts.add(quoteHiveIdent(p) + " STRING");
             }
             partClause = "\nPARTITIONED BY (" + joinPlain(parts) + ")";
         }
@@ -99,6 +99,37 @@ public final class SchemaDdl {
             extras.add(new String[]{"params", "ARRAY<STRUCT<name:STRING,value:STRING>>"});
         }
         return extras;
+    }
+
+    /**
+     * HiveLexer accepts an unquoted identifier only as
+     * {@code (Letter|Digit)(Letter|Digit|'_')*}. A leading underscore is
+     * {@code CharSetName} ({@code _UTF8'...'}), so {@code __time TIMESTAMP}
+     * fails with {@code cannot recognize input near '__time'}.
+     */
+    static String quoteHiveIdent(String name) {
+        if (name == null || name.isEmpty() || isUnquotedHiveIdent(name)) {
+            return name;
+        }
+        return "`" + name.replace("`", "``") + "`";
+    }
+
+    private static boolean isUnquotedHiveIdent(String name) {
+        char first = name.charAt(0);
+        if (!isAsciiLetterOrDigit(first)) {
+            return false;
+        }
+        for (int i = 1; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (!isAsciiLetterOrDigit(c) && c != '_') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAsciiLetterOrDigit(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
     }
 
     static String toHiveType(String t) {
@@ -149,7 +180,8 @@ public final class SchemaDdl {
                 if (colon < 0) {
                     out.add(f.trim());
                 } else {
-                    out.add(f.substring(0, colon).trim() + ":" + toHiveType(f.substring(colon + 1).trim()));
+                    out.add(quoteHiveIdent(f.substring(0, colon).trim())
+                            + ":" + toHiveType(f.substring(colon + 1).trim()));
                 }
             }
             return "STRUCT<" + joinPlain(out) + ">";

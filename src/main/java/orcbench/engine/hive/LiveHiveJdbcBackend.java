@@ -83,6 +83,9 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
             throws Exception {
         Statement st = connection.createStatement();
         try {
+            // Default is "column", but a hive-site override of "none" leaves
+            // backticks in the identifier text. Required for `__time`.
+            st.execute("SET hive.support.quoted.identifiers=column");
             st.execute("DROP TABLE IF EXISTS " + tableName);
             st.execute(ddl);
             if (repairPartitions) {
