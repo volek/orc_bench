@@ -13,9 +13,10 @@ class SchemaDdlTest {
     void hiveColumnsFromOrcSchema() {
         String schema = "struct<\n  userLogin:string,\n  createdAt:timestamp,\n  tags:array<string>\n>";
         String cols = SchemaDdl.hiveColumnsFromOrcSchema(schema);
-        assertTrue(cols.contains("userLogin STRING"));
-        assertTrue(cols.contains("createdAt TIMESTAMP"));
+        assertTrue(cols.contains("`userLogin` STRING"), cols);
+        assertTrue(cols.contains("`createdAt` TIMESTAMP"), cols);
         assertTrue(cols.contains("tags ARRAY<STRING>"));
+        assertFalse(cols.contains("\n  userLogin STRING"), cols);
     }
 
     @Test
@@ -30,7 +31,7 @@ class SchemaDdlTest {
         assertTrue(sql.contains("CREATE EXTERNAL TABLE events"));
         assertTrue(sql.contains("`__time` TIMESTAMP"), sql);
         assertFalse(sql.contains("\n  __time TIMESTAMP"), sql);
-        assertTrue(sql.contains("userLogin STRING"));
+        assertTrue(sql.contains("`userLogin` STRING"), sql);
         assertTrue(sql.contains("epk_id STRING"));
         assertTrue(sql.contains("PARTITIONED BY (event_date STRING)"));
         assertTrue(sql.contains("LOCATION '/orc_test/S/RAW_ARRAY_BASE'"));
@@ -52,6 +53,26 @@ class SchemaDdlTest {
         assertTrue(cols.contains("value:STRING"), cols);
         // Depth-aware split must not break the nested struct into two top-level columns.
         assertFalse(cols.contains("params ARRAY<STRUCT<name:STRING>,\n"), cols);
+    }
+
+    @Test
+    void quoteHiveSqlKeepsKeywordsAndQuotesOrcColumns() {
+        String sql = SchemaDdl.quoteHiveSqlIdentifiers(
+                "SELECT userLogin, createdAt FROM t WHERE name = 'userLogin' AND `__time` IS NOT NULL");
+        assertTrue(sql.contains("`userLogin`"), sql);
+        assertTrue(sql.contains("`createdAt`"), sql);
+        assertTrue(sql.contains("SELECT "), sql);
+        assertTrue(sql.contains("WHERE name = 'userLogin'"), sql);
+        assertTrue(sql.contains("`__time`"), sql);
+        assertFalse(sql.contains("``__time``"), sql);
+    }
+
+    @Test
+    void referenceTableCarriesIdAndType() {
+        String sql = SchemaDdl.createReferenceTableSql("module_dictionary", "/orc_test/S/refs/module_dictionary");
+        assertTrue(sql.contains("CREATE EXTERNAL TABLE module_dictionary"), sql);
+        assertTrue(sql.contains("(id STRING, type STRING)"), sql);
+        assertTrue(sql.contains("LOCATION '/orc_test/S/refs/module_dictionary'"), sql);
     }
 
     @Test

@@ -39,11 +39,11 @@ class QueryTemplateTest {
 
     @Test
     void resolvesSparkQueryWithSubstitution() {
-        QuerySpec q = cfg.queries.queries.stream().filter(x -> "Q02".equals(x.id)).findFirst().get();
+        QuerySpec q = cfg.queries.queries.stream().filter(x -> "Q_USERLOGIN".equals(x.id)).findFirst().get();
         QueryTemplate.BoundQuery b = QueryTemplate.resolveSql(
                 q, cfg.queries, "spark_3_2", "events", samples, "RAW_ARRAY");
         assertNotNull(b);
-        assertEquals("Q02", b.queryId);
+        assertEquals("Q_USERLOGIN", b.queryId);
         assertTrue(b.sql.contains("userLogin1"));
         assertTrue(b.sql.contains("FROM events"));
     }
@@ -51,7 +51,7 @@ class QueryTemplateTest {
     @Test
     void filtersByRepresentationAndDialect() {
         QuerySpec q = cfg.queries.queries.stream()
-                .filter(x -> "NP_ARRAY_EPK_SPARK".equals(x.id)).findFirst().get();
+                .filter(x -> "Q_EPK_SPARK".equals(x.id)).findFirst().get();
         assertNull(QueryTemplate.resolveSql(q, cfg.queries, "hive_tez", "events", samples, "RAW_ARRAY"));
         assertNotNull(QueryTemplate.resolveSql(q, cfg.queries, "spark_3_2", "events", samples, "RAW_ARRAY"));
     }
@@ -59,8 +59,54 @@ class QueryTemplateTest {
     @Test
     void queriesForExperimentFiltersIds() {
         List<QueryTemplate.BoundQuery> qs = QueryTemplate.queriesForExperiment(
-                cfg.queries, Arrays.asList("Q01", "Q08"), "spark_3_2", "events", samples, "RAW_ARRAY");
+                cfg.queries, Arrays.asList("Q_SESSION_ILIKE", "Q_UNFILTERED"), "spark_3_2", "events", samples, "RAW_ARRAY");
         assertEquals(2, qs.size());
+    }
+
+    @Test
+    void hiveDialectQuotesMixedCaseColumns() {
+        QuerySpec q = cfg.queries.queries.stream().filter(x -> "Q_USERLOGIN".equals(x.id)).findFirst().get();
+        QueryTemplate.BoundQuery hive = QueryTemplate.resolveSql(
+                q, cfg.queries, "hive_tez", "events", samples, "RAW_ARRAY");
+        QueryTemplate.BoundQuery spark = QueryTemplate.resolveSql(
+                q, cfg.queries, "spark_3_2", "events", samples, "RAW_ARRAY");
+        assertTrue(hive.sql.contains("`userLogin`"), hive.sql);
+        assertTrue(hive.sql.contains("userLogin1"), hive.sql);
+        assertFalse(spark.sql.contains("`userLogin`"), spark.sql);
+    }
+
+    @Test
+    void unboundQueryIsReportedInsteadOfDropped() {
+        List<QueryTemplate.RejectedQuery> rejected = QueryTemplate.unboundQueries(
+                cfg.queries, Arrays.asList("Q_EPK", "Q_MISSING"), "spark_3_2", "RAW_ARRAY");
+        assertEquals(2, rejected.size());
+        QueryTemplate.RejectedQuery epk = null;
+        QueryTemplate.RejectedQuery missing = null;
+        for (QueryTemplate.RejectedQuery rq : rejected) {
+            if ("Q_EPK".equals(rq.queryId)) {
+                epk = rq;
+            }
+            if ("Q_MISSING".equals(rq.queryId)) {
+                missing = rq;
+            }
+        }
+        assertNotNull(epk);
+        assertTrue(epk.reason.contains("RAW_ARRAY"), epk.reason);
+        assertNotNull(missing);
+        assertTrue(missing.reason.contains("not in the suite"));
+    }
+
+    @Test
+    void eventDateOnFlatLayoutIsRejected() {
+        assertNotNull(QueryTemplate.layoutRejectReason(
+                "SELECT COUNT(*) FROM t WHERE event_date = DATE '2026-01-15'",
+                Collections.<String>emptyList()));
+        assertNull(QueryTemplate.layoutRejectReason(
+                "SELECT COUNT(*) FROM t WHERE event_date = DATE '2026-01-15'",
+                Collections.singletonList("event_date")));
+        assertNull(QueryTemplate.layoutRejectReason(
+                "SELECT COUNT(*) FROM t WHERE name = 'event_date'",
+                Collections.<String>emptyList()));
     }
 
     @Test
@@ -69,7 +115,7 @@ class QueryTemplateTest {
         evil.samples = new HashMap<>();
         evil.samples.put("userLogin", Collections.singletonMap("present",
                 Collections.singletonList("O'Brien")));
-        QuerySpec q = cfg.queries.queries.stream().filter(x -> "Q02".equals(x.id)).findFirst().get();
+        QuerySpec q = cfg.queries.queries.stream().filter(x -> "Q_USERLOGIN".equals(x.id)).findFirst().get();
         QueryTemplate.BoundQuery b = QueryTemplate.resolveSql(
                 q, cfg.queries, "spark_3_2", "t", evil, "RAW_ARRAY");
         assertTrue(b.sql.contains("O''Brien"));

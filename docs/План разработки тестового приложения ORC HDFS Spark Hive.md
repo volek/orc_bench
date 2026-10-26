@@ -80,34 +80,32 @@
 
 | Уровень | Механизм (§1) | Приоритет §1 | Реализация в приложении (`benchmark.yaml`) |
 |---|---|--:|---|
-| ORC | Column pruning | очень высокий | `ORC_COLUMN_PRUNING` (Q07_NARROW vs Q07_WIDE) |
-| ORC | Predicate pushdown | очень высокий | `ORC_PUSHDOWN` (`spark.sql.orc.filterPushdown` false/true; Q02/Q03/Q05/Q06) |
-| ORC | min/max statistics | очень высокий | Базовый index ORC + `MINMAX_SORT` (сортировка усиливает skipping) |
-| ORC | Bloom Filter (`=`, `IN`) | высокий | `BLOOM_USER`, `BLOOM_FPP`, `NESTED_SCALAR_BLOOM` |
+| ORC | Column pruning | очень высокий | `ORC_COLUMN_PRUNING` (`Q_SESSION_EQ` vs `Q_SESSION_EQ_NARROW`; прод — `SELECT *`) |
+| ORC | Predicate pushdown | очень высокий | `ORC_PUSHDOWN` (`Q_SESSION_ILIKE` / `Q_SESSION_EQ` / `Q_EPK_SPARK` / `Q_USERLOGIN`) |
+| ORC | min/max statistics | очень высокий | Baseline уже отсортирован по `__time`; `MINMAX_SORT` сравнивает с несортированным контролем |
+| ORC | Bloom Filter (`=`, `IN`) | высокий | `BLOOM_SESSION`, `BLOOM_FPP` (колонка `session`). `NESTED_SCALAR_BLOOM` исключён |
 | ORC | `row.index.stride` | средний/высокий | `ROW_INDEX` (5000 / 10000 / 20000 / 50000) |
-| ORC | Сортировка данных | очень высокий | `MINMAX_SORT`, `NESTED_SCALAR_SORT` |
+| ORC | Сортировка данных | очень высокий | Baseline: `__time`. `MINMAX_SORT` — контроль без сортировки. `NESTED_SCALAR_SORT` исключён |
 | ORC | `stripe.size` | средний | `STRIPE_SIZE` (64 / 128 / 256 MiB) |
 | ORC | compression | средний | `COMPRESSION` (ZLIB / SNAPPY / **ZSTD для Spark**; ZSTD исключён из BEST_ORC для Hive до поддержки codec в Hive ORC 1.5.6 — см. §10.1) |
-| HDFS/Table | Partitioning | очень высокий | `PARTITIONING`, `DATE_PARTITION_QUERY` (Q01_PARTITIONED, Q06_PARTITIONED) |
-| HDFS/Table | Bucketing | выборочно высокий | `BUCKETING` (0 / 32, key `epk_id`, HYBRID; Q11/Q17) |
-| HDFS | Compaction / small files | высокий | `FILE_SIZES` (32 / 256 / 1024 MiB) |
+| HDFS/Table | Partitioning | очень высокий | Baseline — часовой ключ `key=yyyy-MM-dd--HH`. `PARTITIONING` сравнивает с непартиционированным контролем. `BUCKETING` исключён |
+| HDFS | Compaction / small files | высокий | `FILE_SIZES` (256 / 912 / 1300 MiB). Baseline ~912 MiB |
 | HDFS | Short-circuit read | средний/высокий | `SHORT_CIRCUIT` — только observational (флаг **не mutable** runner’ом; подтверждено) |
 | HDFS | Centralized Cache | высокий | `HDFS_CACHE` (cold / naturally_warm / centralized → **centralized = ожидаемый skip**; подтверждено) |
 | Spark 3.2 | Native/vectorized ORC | высокий | `SPARK_ORC_READER`, `SPARK_VECTORIZATION`, `SPARK_NESTED_VECTORIZATION` |
 | Spark 3.2 | AQE | высокий | `SPARK_AQE` |
-| Spark 3.2 | DPP | высокий | `SPARK_DPP` + Q11_DPP |
-| Spark 3.2 | CBO/statistics | средний/высокий | `SPARK_CBO` (+ `ANALYZE` в `SPARK_OPTIMIZED`) |
-| Spark 3.2 | Broadcast Join | высокий | `SPARK_BROADCAST` |
+| Spark 3.2 | DPP | высокий | Свойство включено в baseline. Отдельный `SPARK_DPP` исключён: окно задаёт список партиций, не join |
+| Spark 3.2 | CBO/statistics | средний/высокий | `SPARK_CBO` и `SPARK_BROADCAST` исключены: в журнале SM_UKO нет join и агрегаций |
 | Hive | Vectorized execution | высокий | `HIVE_VECTORIZATION` |
-| Hive | CBO/statistics | высокий | `HIVE_CBO` |
+| Hive | CBO/statistics | высокий | `HIVE_CBO` исключён для смеси SM_UKO |
 | Hive | Tez | высокий | `HIVE_TEZ_BASE` (`hive.llap.execution.mode=none`) |
 | Hive ≥2.0 | LLAP | очень высокий | `HIVE_LLAP`, `HIVE_LLAP_CACHE`, профили `HIVE_LLAP_COLD/WARM` — **в плане**; готовность **валидируется на реальном кластере** и при необходимости корректируется |
 | Hive | Materialized Views | высокий для OLAP | `HIVE_MATERIALIZED_VIEW` → **ожидаемый skip** (подтверждено) |
 
 Дополнительно (есть в configs, усиливает §1):
 
-- Представления nested-данных: `NESTED_REPRESENTATIONS` (RAW_ARRAY / MAP / FLAT / HYBRID) + dialect-specific NP_* запросы.
-- Финальное сравнение: `final_comparison` на `BEST_ORC` × engine-профили.
+- Представления nested-данных: `NESTED_REPRESENTATIONS` для поиска `EPK_ID` (`Q_EPK_SPARK` / `Q_EPK_MAP` / `Q_EPK`). Боевой путь — RAW_ARRAY.
+- Финальное сравнение SM_UKO: `final_comparison` на `BEST_ORC` × `SPARK_COMMON`. Hive/LLAP остаётся отдельным треком `orc_engine_track`.
 
 ---
 
@@ -120,7 +118,7 @@
 | `environment.yaml` | Факты кластера: Kerberos, версии, HDFS, YARN, Spark, Hive/LLAP, preflight, operations | Preflight-пробы; параметры `spark-submit`; JDBC URL; `hdfs.work_dir`; skip-правила; стартовый executor sizing |
 | `benchmark.yaml` | SLA, HDFS root, baseline ORC, representations, physical/engine experiments, metrics, runs, result equivalence | Разворачивание матрицы экспериментов; writer settings; engine profiles; отчётность; кандидаты concurrency (фактический набор — capacity-aware) |
 | `dataset.yaml` | Синтетика: seed, scales, колонки, parameters catalog, reference datasets, query samples | Генератор ORC; справочники JOIN; подстановка плейсхолдеров в SQL |
-| `query-suite.yaml` | SQL-шаблоны Q01…Q18 + NP_*; dialects; representation_rewrites | Spark/Hive runners; rewrite запросов под representation |
+| `query-suite.yaml` | SQL смеси SM_UKO (`Q_SESSION_ILIKE`, `Q_EPK_SPARK`, полнотекст, …); dialects | Spark/Hive runners |
 | `schema.orc.txt` | Каноническая ORC-схема RAW_ARRAY | Writer schema; result equivalence projection |
 
 ### 5.2. Ключевые knobs из конфигов (ориентир для кода)
@@ -132,7 +130,7 @@
 - HDFS: nameservice `hdfs://sdp-dzo-lt-omlt`, replication **2**, block **128 MiB**, данные бенчмарка **`hdfs://sdp-dzo-lt-omlt/orc_test`**.
 - YARN: queue **`default`**, RM HA (namenode-01/02); Effective_Max_Capacity (ориентир первого запуска): **memory 221184 MB (~216 GiB), vCores 67**; **6 datanodes**.
 - Spark: `master: yarn`, **`deploy_mode: cluster` только**. Скрипты запуска отклоняют `client`.
-- Executor sizing: стартовые значения для первого пробного запуска — см. §8.1; **финальный sizing — после первого trial run**.
+- Executor sizing для НТ: профиль archive-query **common** — 4×2×3g, overhead 512m, driver 1×2g. Прежний 10×4×16g записан как `layout_probe` и для сравнения с продом не используется.
 - Hive JDBC: ZooKeeper discovery → HS2; LLAP app `llap0`, mode `only`; MV не поддерживаются.
 - Short-circuit: supported+enabled, **не mutable** runner’ом (подтверждено).
 - Preflight: exact versions, HDFS capacity, feature probe; skip unavailable experiments.
@@ -140,18 +138,18 @@
 
 **Benchmark (`benchmark.yaml`):**
 
-- `hdfs_root: hdfs://sdp-dzo-lt-omlt/orc_test`, SLA **3000 ms**, `warmup_per_query: 5`, `measured_per_query: 30`.
+- `hdfs_root: hdfs://sdp-dzo-lt-omlt/orc_test`, порог приемлемого времени **2 часа** (`sla_mean_latency_ms: 7200000`). 3000 ms — цель только для `Q_SESSION_EQ` с bloom. `warmup_per_query: 5`, `measured_per_query: 30`.
 - Concurrency: **не фиксированный MVP-набор**. В YAML могут быть кандидаты уровней; фактические уровни concurrency **настраиваются per dataset scale с учётом ёмкости кластера** (см. §8.2). Не запускать тяжёлые уровни «вслепую» на L без capacity-оценки.
-- Physical baseline `RAW_ARRAY_BASE`: SNAPPY, stripe 64 MiB, stride 10000, без bloom/sort/partitions.
+- Physical baseline `RAW_ARRAY_BASE`: ZLIB, stripe 64 MiB (несжатая цель), stride 10000, сортировка по `__time`, партиция `key`, bloom пустой. Файл ~912 MiB.
 - Hive DB `bench`, таблицы `bench.events__{scale}__{experiment}__{variant}`.
 - Метрики required: `latency_ms`, `status`, `result_hash`, `logical_rows`, `orc_file_bytes`, `hdfs_bytes_read`, `engine_plan`.
 - ZSTD: кандидат compression для Spark; исключён из BEST_ORC на стороне Hive (ORC 1.5.6 codec gap); задел на включение ZSTD для Hive позже.
 
 **Dataset (`dataset.yaml`):**
 
-- Scales (логические GiB / GB по `size_method`): **S=100 / M=500 / L=1024**.
-- Seed `123456789`, algorithm `audit_synth_v1`, timestamp range январь 2026 UTC.
-- Derived partitions: `event_date = DATE(__time)`, `event_hour = HOUR(__time)`.
+- Scales, старая эпоха: **S** = 1 час (~262 ГиБ логических, ~9,7 ГБ сжатых), **M** = сутки (233 ГБ сжатых), **L** = 120 часов (~1,17 ТБ сжатых).
+- Seed `123456789`, algorithm `audit_synth_v2`, окно весны 2025 (старая эпоха).
+- Партиция: `key = date_format(__time, 'yyyy-MM-dd--HH')`. В SQL условия по времени нет.
 
 **Query suite:** плейсхолдеры `${table}`, `${user_login}`, `${epk_id}`, …; dialects `spark_3_2` / `hive_tez`.
 
@@ -428,9 +426,9 @@ Main-Class: orcbench.Main
 
 **(A) Local — критерии приёмки на этом host**
 
-- [x] Узкий набор экспериментов Pilot S в конфиге/доках/скриптах: `conf/pilot-s.yaml` (+ `configs_final/pilot-s.yaml`), `scripts/run-pilot-s.sh`, runbook §6.2 — `ORC_COLUMN_PRUNING`, `ORC_PUSHDOWN`, `MINMAX_SORT`, `BLOOM_USER`, `PARTITIONING` + `SPARK_VECTORIZATION` (materialize: rewrite-трио).
+- [x] Узкий набор экспериментов Pilot S в конфиге/доках/скриптах: `conf/pilot-s.yaml`, `scripts/run-pilot-s.sh`, runbook. С 2026-10-26 (индекс SM_UKO): materialize `BLOOM_SESSION`, run `ORC_COLUMN_PRUNING`, `ORC_PUSHDOWN`, `BLOOM_SESSION`, `SPARK_VECTORIZATION`. Ранее в CP10 был срез `MINMAX_SORT`, `BLOOM_USER`, `PARTITIONING`.
 - [x] Чеклист калибровки executor_* / concurrency по §8.1–§8.2 — шаблон в [`Запуск на Hadoop кластере.md`](Запуск%20на%20Hadoop%20кластере.md) §12 (заполнение **после** trial на ноде).
-- [x] Стартовый sizing в conf: 10×4×16g, `deploy_mode=cluster`, concurrency start 1,5; scales 100/500/1024 GB; Spark ZSTD kept / Hive ZSTD deferred (без изменений политики).
+- [x] Стартовый sizing в conf: с 2026-10-26 профиль common 4×2×3g, driver 1×2g, `deploy_mode=cluster`, concurrency start 1 и 5. Прежний 10×4×16g — `layout_probe`. Spark ZSTD kept / Hive ZSTD deferred.
 - [x] Локальный smoke: `./scripts/run-pilot-s.sh --print` / `--dry-run-submit` (без live cluster).
 - **Приёмка (A) не включает** сам пилотный прогон на кластере.
 
@@ -489,17 +487,16 @@ preflight (dry-run) → preflight → generate(S=100 GB) → materialize (узк
 | Datanodes | **6** |
 | YARN Effective_Max_Capacity (queue) | **memory: 221184 MB (~216 GiB), vCores: 67** |
 
-**Стартовые рекомендации для первого launch** (с запасом под AM/driver и соседнюю нагрузку; не исчерпывать Effective_Max_Capacity):
+**Профиль archive-query common** (с 2026-10-26, индекс SM_UKO). На свободном стенде таких приложений помещается около девяти:
 
-| Параметр | Первое значение | Комментарий |
+| Параметр | Значение | Комментарий |
 |---|---|---|
-| `executor_instances` | **10** | ~1–2 executor’а на datanode в среднем |
-| `executor_cores` | **4** | итого ~40 vCores из 67 |
-| `executor_memory_gib` | **16** | итого ~160 GiB из ~216 (+ driver/AM ~4–8 GiB) |
+| `executor_instances` | **4** | плюс driver |
+| `executor_cores` | **2** | итого 8 vCores приложения + 1 у driver |
+| `executor_memory_gib` | **3** | overhead 512m, `spark.memory.fraction=0.8` |
+| driver | **1 × 2g** | `shuffle.partitions=200`, `default.parallelism=4` |
 
-Итоговая загрузка ≈ **40 vCores / 160–168 GiB** — ниже потолка 67 / 216, чтобы оставить запас.
-
-**Правило:** эти цифры — только для первого trial. **Финальный sizing утверждается после первого пробного прогона** (по факту YARN, GC, длительности generate/run, конкуренции с LLAP-очередью). Правки — в `environment.yaml` / `environment.local.yaml` и в обёртке `spark-submit`.
+Одно приложение — около 9 vCores и 19 ГБ. Прежний старт 10×4×16g (~40 vCores / 160 ГиБ) записан как `spark.layout_probe` и для сравнения с продом не используется.
 
 ### 8.2. Concurrency — dataset- и cluster-aware
 

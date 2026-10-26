@@ -21,13 +21,19 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
 
     private final Connection connection;
     private final boolean ownsConnection;
+    private final LoadedConfig reconnectConfig;
 
     public LiveHiveJdbcBackend(Connection connection, boolean ownsConnection) {
+        this(connection, ownsConnection, null);
+    }
+
+    private LiveHiveJdbcBackend(Connection connection, boolean ownsConnection, LoadedConfig reconnectConfig) {
         if (connection == null) {
             throw new IllegalArgumentException("connection is required");
         }
         this.connection = connection;
         this.ownsConnection = ownsConnection;
+        this.reconnectConfig = reconnectConfig;
     }
 
     /**
@@ -35,7 +41,7 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
      * Intended for use on a Hadoop cluster node after {@code kinit}.
      */
     public static LiveHiveJdbcBackend connect(LoadedConfig cfg) throws Exception {
-        return new LiveHiveJdbcBackend(openConnection(cfg), true);
+        return new LiveHiveJdbcBackend(openConnection(cfg), true, cfg);
     }
 
     public static Connection openConnection(LoadedConfig cfg) throws Exception {
@@ -83,9 +89,7 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
             throws Exception {
         Statement st = connection.createStatement();
         try {
-            // Default is "column", but a hive-site override of "none" leaves
-            // backticks in the identifier text. Required for `__time`.
-            st.execute("SET hive.support.quoted.identifiers=column");
+            enableQuotedIdentifiers(st);
             st.execute("DROP TABLE IF EXISTS " + tableName);
             st.execute(ddl);
             if (repairPartitions) {
@@ -103,18 +107,29 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         }
         Statement st = connection.createStatement();
         try {
+            enableQuotedIdentifiers(st);
             for (Map.Entry<String, String> e : nameToLocation.entrySet()) {
-                try {
-                    st.execute("DROP TABLE IF EXISTS " + e.getKey());
-                    st.execute("CREATE EXTERNAL TABLE " + e.getKey()
-                            + " STORED AS ORC LOCATION '" + e.getValue() + "'");
-                } catch (Exception ignored) {
-                    // refs are best-effort for JOIN queries
-                }
+                st.execute("DROP TABLE IF EXISTS " + e.getKey());
+                st.execute(SchemaDdl.createReferenceTableSql(e.getKey(), e.getValue()));
             }
         } finally {
             st.close();
         }
+    }
+
+    @Override
+    public HiveJdbcBackend openSession() throws Exception {
+        if (reconnectConfig == null) {
+            throw new IllegalStateException(
+                    "parallel Hive session needs environment.hive jdbc url");
+        }
+        return connect(reconnectConfig);
+    }
+
+    private static void enableQuotedIdentifiers(Statement st) throws Exception {
+        // Default is "column", but a hive-site override of "none" leaves
+        // backticks in the identifier text. Required for `__time` and mixed-case ORC names.
+        st.execute("SET hive.support.quoted.identifiers=column");
     }
 
     @Override
@@ -133,6 +148,7 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
     public QueryExecResult execute(String sql) throws Exception {
         Statement st = connection.createStatement();
         try {
+            enableQuotedIdentifiers(st);
             ResultSet rs = st.executeQuery(sql);
             try {
                 ResultDigest digest = new ResultDigest();
@@ -155,6 +171,7 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         try {
             Statement st = connection.createStatement();
             try {
+                enableQuotedIdentifiers(st);
                 ResultSet rs = st.executeQuery("EXPLAIN " + sql);
                 try {
                     List<String> lines = readAll(rs);

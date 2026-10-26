@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,28 +42,28 @@ class ConfigLoaderTest {
         LoadedConfig cfg = ConfigLoader.load("conf", null);
 
         assertEquals("audit_orc_hdfs_spark_hive", cfg.benchmark.benchmark.id);
-        assertEquals(2, cfg.benchmark.benchmark.specVersion);
+        assertEquals(3, cfg.benchmark.benchmark.specVersion);
         assertEquals("hdfs://sdp-dzo-lt-omlt/orc_test", cfg.benchmark.benchmark.hdfsRoot);
         assertEquals("RAW_ARRAY_BASE", cfg.benchmark.physicalBaseline.id);
-        assertEquals("SNAPPY", cfg.benchmark.physicalBaseline.orc.compression);
+        assertEquals("ZLIB", cfg.benchmark.physicalBaseline.orc.compression);
         assertEquals(10000, cfg.benchmark.physicalBaseline.orc.rowIndexStride);
         assertFalse(cfg.benchmark.physicalExperiments.isEmpty());
-        assertTrue(cfg.benchmark.physicalExperiments.stream().anyMatch(e -> "BLOOM_USER".equals(e.id)));
+        assertTrue(cfg.benchmark.physicalExperiments.stream().anyMatch(e -> "BLOOM_SESSION".equals(e.id)));
         assertTrue(cfg.benchmark.physicalExperiments.stream().anyMatch(e -> "COMPRESSION".equals(e.id)));
         assertFalse(cfg.benchmark.engineExperiments.spark.isEmpty());
         assertFalse(cfg.benchmark.engineExperiments.hive.isEmpty());
-        assertEquals(5, cfg.benchmark.runs.concurrencyLevels.size());
-        assertEquals("per_scale_capacity_aware", cfg.benchmark.runs.concurrencyPolicy);
-        assertEquals(Arrays.asList("Q02", "Q03", "Q07_NARROW"),
+        assertEquals(3, cfg.benchmark.runs.concurrencyLevels.size());
+        assertEquals("prod_common_core_bound", cfg.benchmark.runs.concurrencyPolicy);
+        assertEquals(Collections.singletonList("Q_SESSION_EQ"),
                 cfg.benchmark.bestOrcRule.objectiveQueries);
         assertEquals(0.95, cfg.benchmark.bestOrcRule.slaSuccessRateMin, 1e-9);
         assertTrue(cfg.benchmark.bestOrcRule.excludeZstd);
         assertFalse(cfg.benchmark.finalComparison.engines.isEmpty());
         assertEquals("BEST_ORC", cfg.benchmark.finalComparison.physicalDataset);
 
-        assertEquals(100L, cfg.dataset.scales.get("S").targetLogicalGib);
-        assertEquals(500L, cfg.dataset.scales.get("M").targetLogicalGib);
-        assertEquals(1024L, cfg.dataset.scales.get("L").targetLogicalGib);
+        assertEquals(262L, cfg.dataset.scales.get("S").targetLogicalGib);
+        assertEquals(6291L, cfg.dataset.scales.get("M").targetLogicalGib);
+        assertEquals(31455L, cfg.dataset.scales.get("L").targetLogicalGib);
         assertEquals(123456789L, cfg.dataset.generation.seed);
         assertFalse(cfg.dataset.columns.isEmpty());
 
@@ -71,11 +71,13 @@ class ConfigLoaderTest {
         assertEquals(Long.valueOf(216L), cfg.environment.environment.yarn.availableMemoryGib);
         assertEquals(Integer.valueOf(67), cfg.environment.environment.yarn.availableVcores);
         assertEquals("cluster", cfg.environment.environment.spark.deployMode);
-        assertEquals(Integer.valueOf(10), cfg.environment.environment.spark.executorInstances);
+        assertEquals(Integer.valueOf(4), cfg.environment.environment.spark.executorInstances);
+        assertEquals(Integer.valueOf(2), cfg.environment.environment.spark.executorCores);
+        assertEquals(Integer.valueOf(3), cfg.environment.environment.spark.executorMemoryGib);
         assertEquals(Boolean.FALSE, cfg.environment.environment.hive.materializedViewsSupported);
 
         assertFalse(cfg.queries.queries.isEmpty());
-        assertTrue(cfg.queries.queries.stream().anyMatch(q -> "Q01".equals(q.id)));
+        assertTrue(cfg.queries.queries.stream().anyMatch(q -> "Q_SESSION_ILIKE".equals(q.id)));
         assertTrue(cfg.schemaText.contains("userLogin"));
     }
 

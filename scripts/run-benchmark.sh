@@ -11,7 +11,7 @@
 #   См. docs/Запуск на Hadoop кластере.md
 #
 # Значения по умолчанию (CLI/env → conf/environment.yaml → хардкод):
-#   master=yarn, deploy_mode=cluster, queue=default, executors 10×4×16g
+#   master=yarn, deploy_mode=cluster, queue=default, executors 4×2×3g (profile common)
 #
 # Параметры spark-submit (опционально; перекрывают YAML/env):
 #   -h, --help              показать эту справку
@@ -21,8 +21,8 @@
 #   --queue NAME            YARN-очередь (ORC_BENCH_QUEUE / YAML)
 #   --num-executors N       число executor'ов (ORC_BENCH_NUM_EXECUTORS / YAML)
 #   --executor-cores N      ядра на executor (ORC_BENCH_EXECUTOR_CORES / YAML)
-#   --executor-memory SIZE  память executor, напр. 16g (ORC_BENCH_EXECUTOR_MEMORY)
-#   --driver-memory SIZE    память драйвера, по умолчанию 4g (ORC_BENCH_DRIVER_MEMORY)
+#   --executor-memory SIZE  память executor, напр. 3g (ORC_BENCH_EXECUTOR_MEMORY)
+#   --driver-memory SIZE    память драйвера, по умолчанию 2g (ORC_BENCH_DRIVER_MEMORY)
 #   --principal PRINCIPAL   Kerberos principal (ORC_BENCH_PRINCIPAL / YAML)
 #   --keytab PATH           путь к keytab (ORC_BENCH_KEYTAB / YAML)
 #   --name TEXT             имя в YARN App Manager (иначе orc-bench <phase> <scale> …)
@@ -73,7 +73,9 @@ QUEUE="${ORC_BENCH_QUEUE:-}"
 NUM_EXECUTORS="${ORC_BENCH_NUM_EXECUTORS:-}"
 EXECUTOR_CORES="${ORC_BENCH_EXECUTOR_CORES:-}"
 EXECUTOR_MEMORY="${ORC_BENCH_EXECUTOR_MEMORY:-}"
-DRIVER_MEMORY="${ORC_BENCH_DRIVER_MEMORY:-4g}"
+DRIVER_MEMORY="${ORC_BENCH_DRIVER_MEMORY:-}"
+DRIVER_CORES="${ORC_BENCH_DRIVER_CORES:-}"
+EXECUTOR_OVERHEAD="${ORC_BENCH_EXECUTOR_OVERHEAD:-}"
 PRINCIPAL="${ORC_BENCH_PRINCIPAL:-}"
 KEYTAB="${ORC_BENCH_KEYTAB:-}"
 APP_NAME="${ORC_BENCH_APP_NAME:-}"
@@ -176,6 +178,13 @@ SUBMIT=(
   --executor-cores "$EXECUTOR_CORES"
   --executor-memory "$EXECUTOR_MEMORY"
   --driver-memory "$DRIVER_MEMORY"
+  --driver-cores "$DRIVER_CORES"
+  --conf "spark.yarn.executor.memoryOverhead=${EXECUTOR_OVERHEAD}"
+  --conf spark.memory.fraction=0.8
+  --conf spark.sql.shuffle.partitions=200
+  --conf spark.default.parallelism=4
+  --conf spark.yarn.maxAppAttempts=1
+  --conf spark.eventLog.enabled=true
   --name "$APP_YARN_NAME"
   --class orcbench.Main
 )

@@ -13,5 +13,10 @@ struct<
   paramValue:array<string>,
   archiveInternalId:string,
   archiveInsertTime:timestamp,
-  __time:timestamp
+  __time:timestamp,
+  id:string,
+  sourceSystem:string,
+  metamodelHash:string,
+  nodeId:string,
+  requestId:string
 >

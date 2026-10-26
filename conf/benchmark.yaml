@@ -1,19 +1,24 @@
-# Cross-layer ORC/HDFS/Spark 3.2/Hive 3.1 R&D; YAML is a benchmark runner contract.
-# spec_version 2 (2026-10-16): stage-2 decisions 2.1-2.15 approved (2.14 by dev);
-# environment facts live only in environment.yaml (2.15); single root key (2.13).
+# Cross-layer ORC/HDFS/Spark 3.2/Hive 3.1 contract, actualized to SM_UKO.
+# spec_version 3 (2026-10-26): index CI02001608_CI00982781_SM_UKO (analysis 2026-10-21).
+# Environment facts live only in environment.yaml. Hive/LLAP stays a side track.
 benchmark:
   id: audit_orc_hdfs_spark_hive
-  spec_version: 2
-  sla_mean_latency_ms: 3000
+  spec_version: 3
+  # 2 hours: every logged cancel happened inside this horizon. A 120-partition
+  # old-era session scan on profile common is about 2.8 h of Spark work.
+  sla_mean_latency_ms: 7200000
+  aspirational_optimized_latency_ms: 3000
+  sla_note: 3000 ms applies only to Q_SESSION_EQ after a session bloom skips stripes. It is not the baseline SLA.
   isolation: one_variable_at_a_time_then_best_combinations
   require_result_equivalence: true
   hdfs_root: /orc_test
   generated_hive_ddl: generated/hive-table.sql
   derived_partition_columns:
-  - event_date
-  - event_hour
+  - key
+  partition_key_format: yyyy-MM-dd--HH
+  partition_grain: hour
   preservation_policy: A_original_RAW_ARRAY_immutable_plus_derived_MAP_FLAT_HYBRID
-  source_reference: user_supplied_real_orc_sample
+  source_reference: index CI02001608_CI00982781_SM_UKO analysis 2026-10-21
   raw_array_schema_verified: true
   vendor_specific_version_validation: true
   configuration_basis: real_orc_footer_plus_confirmed_sdp_cluster
@@ -26,22 +31,28 @@ benchmark:
   physical_baseline:
     id: RAW_ARRAY_BASE
     representation: RAW_ARRAY
-    partitioning: []
+    partitioning:
+    - key
     bucketing: null
-    sorting: []
-    target_file_size_mib: 256
+    sorting:
+    - __time
+    # Median-hour file is ~0.89 GB (six of these plus a 31 MB tail). Old-era average file is 1.27 GB.
+    target_file_size_mib: 912
     orc:
-      compression: SNAPPY
+      compression: ZLIB
       stripe_size_mib: 64
       create_index: true
+      # Sample footer value. The index analysis does not reconfirm the stride.
       row_index_stride: 10000
       bloom:
         columns: []
         fpp: 0.01
-      verified_from_source:
-        compression: SNAPPY
-        row_index_stride: 10000
-      stripe_size_mib_proposed_not_confirmed: 64
+      verified_from_index:
+        compression: ZLIB
+        compression_ratio: 27
+        on_disk_stripe_mib: 8.4
+        rows_per_stripe: 31000
+      stripe_size_note: 64 MiB is the uncompressed target. 8.4 MiB is that stripe after ZLIB. Do not set the writer stripe to 8.
   representations:
     PAIRS:
       transform: zip_native_parallel_arrays_as_ordered_struct_array
@@ -59,28 +70,26 @@ benchmark:
       transform: extract_selected_scalar_columns_from_native_arrays
       columns:
       - epk_id
-      - session_id
       - operation_uid
-      - channel_type
-      - vsp_code
-      - osb_code
-      - tb_code
+      - card_number
       - ip_address
-      - device_system_name
+      - device_id
+      - tb_code
+      - osb_code
+      - vsp_code
       keep_original_parameters: false
       lossless: false
     HYBRID:
       transform: retain_native_arrays_plus_selected_scalar_columns
       columns:
       - epk_id
-      - session_id
       - operation_uid
-      - channel_type
-      - vsp_code
-      - osb_code
-      - tb_code
+      - card_number
       - ip_address
-      - device_system_name
+      - device_id
+      - tb_code
+      - osb_code
+      - vsp_code
       keep_original_parameters: true
       lossless: true
     RAW_ARRAY:
@@ -101,6 +110,11 @@ benchmark:
       module_dictionary: bench.module_dictionary
       epk_dictionary: bench.epk_dictionary
       partition_dates: bench.partition_dates
+      sm_uko_note: unused by the SM_UKO mix. module is constant, EPK comes from a file, partitions are chosen outside SQL.
+    epk_id_file:
+      distinct_ids: 10800
+      approx_kib: 216
+      binding: epk_id_list
     placeholder_binding:
       table: fact table of current experiment/variant
       module_dictionary_table: bench.module_dictionary
@@ -118,47 +132,44 @@ benchmark:
   - id: ORC_COLUMN_PRUNING
     kind: query_only
     based_on: RAW_ARRAY_BASE
+    note: prod queries are SELECT *. This pair isolates projection on the equality predicate.
     queries:
-    - Q07_NARROW
-    - Q07_WIDE
+    - Q_SESSION_EQ
+    - Q_SESSION_EQ_NARROW
   - id: ORC_PUSHDOWN
     kind: reader_settings
     based_on: RAW_ARRAY_BASE
     variants:
     - false
     - true
+    note: ILIKE and LIKE do not push down; equality can.
     queries:
-    - Q02
-    - Q03
-    - Q05
-    - Q06
+    - Q_SESSION_ILIKE
+    - Q_SESSION_EQ
+    - Q_EPK_SPARK
+    - Q_USERLOGIN
   - id: MINMAX_SORT
     kind: rewrite
     based_on: RAW_ARRAY_BASE
     factor: sorting
+    note: production files are already ordered by __time. The empty list is the control.
     values:
     - []
-    - - userLogin
-    - - session
     - - __time
-      - userLogin
     queries: &id001
-    - Q02
-    - Q03
-    - Q04
-    - Q07_NARROW
-    - Q08
+    - Q_SESSION_ILIKE
+    - Q_SESSION_EQ
+    - Q_EPK_SPARK
+    - Q_USERLOGIN
     engine: SPARK_BASE
-  - id: BLOOM_USER
+  - id: BLOOM_SESSION
     kind: rewrite
     based_on: RAW_ARRAY_BASE
     factor: bloom_columns
+    note: replaces BLOOM_USER. Session is 79% of queries. userLogin is about 1% and is not a bloom target.
     values:
     - []
-    - - userLogin
     - - session
-    - - userLogin
-      - session
     queries: *id001
     engine: SPARK_BASE
   - id: BLOOM_FPP
@@ -170,7 +181,7 @@ benchmark:
     - 0.01
     - 0.001
     requires_bloom_columns:
-    - userLogin
+    - session
     queries: *id001
     engine: SPARK_BASE
   - id: ROW_INDEX
@@ -207,40 +218,34 @@ benchmark:
   - id: PARTITIONING
     kind: rewrite
     factor: partition_columns
+    note: production is always hourly. The empty list is the control. SQL still has no time predicate; the runner passes the partition list.
     values:
     - []
-    - - event_date
-    - - event_date
-      - event_hour
+    - - key
     based_on: RAW_ARRAY_BASE
     queries:
-    - Q02
-    - Q03
-    - Q04
-    - Q07_NARROW
-    - Q08
-    - Q01_PARTITIONED
-    - Q06_PARTITIONED
+    - Q_SESSION_ILIKE
     engine: SPARK_BASE
   - id: BUCKETING
     kind: hive_compatible_write
+    status: excluded_from_sm_uko
+    reason: the index is not bucketed. Lookups are session and EPK scans, and module is a constant.
     factor: bucket_count
     values:
     - 0
     - 32
     bucket_key: epk_id
     representation: HYBRID
-    queries:
-    - Q11
-    - Q17
+    queries: []
     engine: SPARK_BASE
   - id: FILE_SIZES
     kind: rewrite
     factor: target_file_size_mib
+    note: 912 is the median-hour file (~0.89 GB). 1300 is the old-era average file (1.27 GB). 256 is the previous contract.
     values:
-    - 32
     - 256
-    - 1024
+    - 912
+    - 1300
     based_on: RAW_ARRAY_BASE
     queries: *id001
     engine: SPARK_BASE
@@ -253,7 +258,7 @@ benchmark:
     - hdfs_short_circuit_supported
     - client_datanode_colocation
     queries:
-    - Q07_WIDE
+    - Q_SESSION_ILIKE
     engine: SPARK_BASE
   - id: HDFS_CACHE
     kind: cluster_read
@@ -264,7 +269,7 @@ benchmark:
     requires_for_centralized:
     - centralized_cache_supported
     queries:
-    - Q07_WIDE
+    - Q_SESSION_ILIKE
     engine: SPARK_BASE
   - id: NESTED_REPRESENTATIONS
     kind: rewrite
@@ -275,51 +280,43 @@ benchmark:
     - FLAT
     - HYBRID
     queries:
-    - Q11
-    - Q12
-    - Q13
-    - Q14
-    - Q15
-    - Q16
-    - Q17
+    - Q_EPK_SPARK
+    - Q_EPK_HIVE
+    - Q_EPK_MAP
+    - Q_EPK
     engine: SPARK_BASE
-    representation_rewrites_ref: query_suite.representation_rewrites (2.2)
+    representation_rewrites_ref: query_suite.representation_rewrites
     based_on: RAW_ARRAY_BASE
   - id: NESTED_SCALAR_BLOOM
     kind: rewrite
+    status: excluded_from_sm_uko
+    reason: EPK_ID lives inside paramValue. The analysis recommends a bloom on the top-level session column.
     representation: HYBRID
     factor: bloom_columns
     values:
     - []
     - - epk_id
-    - - epk_id
-      - session_id
     based_on: RAW_ARRAY_BASE
-    queries:
-    - Q11
-    - Q14
+    queries: []
     engine: SPARK_BASE
   - id: NESTED_SCALAR_SORT
     kind: rewrite
+    status: excluded_from_sm_uko
+    reason: production files are ordered by __time. Sorting by epk_id is not a logged access path.
     representation: HYBRID
     factor: sorting
     values:
     - []
-    - - epk_id
     - - __time
-      - epk_id
     based_on: RAW_ARRAY_BASE
-    queries:
-    - Q11
-    - Q14
+    queries: []
     engine: SPARK_BASE
-  - id: DATE_PARTITION_QUERY
-    kind: derived_layout_query
-    requires:
-    - derived_event_date_partition
+  - id: PARTITION_SCOPE
+    kind: runner_partition_list
+    note: SQL has no time predicate. The runner supplies key partitions in batches of 20.
+    batch_size: 20
     queries:
-    - Q01_PARTITIONED
-    - Q06_PARTITIONED
+    - Q_SESSION_ILIKE
   execution_baselines:
     spark:
       spark.sql.orc.impl: native
@@ -339,6 +336,11 @@ benchmark:
   engine_profiles:
     SPARK_BASE:
       extends: execution_baselines.spark
+      sizing_profile: layout_probe
+    SPARK_COMMON:
+      extends: execution_baselines.spark
+      sizing_profile: prod_common
+      note: same SQL conf as SPARK_BASE. Resources are archive-query common (environment.spark).
     SPARK_OPTIMIZED:
       extends: execution_baselines.spark
       set:
@@ -371,57 +373,57 @@ benchmark:
       - false
       - true
       queries:
-      - Q07_NARROW
-      - Q07_WIDE
-      - Q08
+      - Q_SESSION_ILIKE
+      - Q_FULLTEXT
+      - Q_EPK_SPARK
     - id: SPARK_AQE
       property: spark.sql.adaptive.enabled
       values:
       - false
       - true
+      note: prod filters do not aggregate. AQE is secondary, on the heavy templates only.
       queries:
-      - Q08
-      - Q09
-      - Q10
+      - Q_FULLTEXT
+      - Q_MODULE_NAME_EPK_FILE
     - id: SPARK_DPP
       property: spark.sql.optimizer.dynamicPartitionPruning.enabled
+      status: excluded_from_sm_uko
+      reason: partition scope is a list supplied by the runner, not a join to a date dimension.
       values:
       - false
       - true
-      queries:
-      - Q11_DPP
+      queries: []
     - id: SPARK_CBO
       property: spark.sql.cbo.enabled
+      status: excluded_from_sm_uko
+      reason: the logged workload has no joins and no aggregations.
       values:
       - false
       - true
-      queries:
-      - Q09
-      - Q10
+      queries: []
     - id: SPARK_BROADCAST
       property: spark.sql.autoBroadcastJoinThreshold
+      status: excluded_from_sm_uko
+      reason: the logged workload has no joins.
       values:
       - -1
       - 10485760
-      queries:
-      - Q10
+      queries: []
     - id: SPARK_ORC_READER
       property: spark.sql.orc.impl
       values:
       - native
       - hive
       queries:
-      - Q02
-      - Q07_NARROW
+      - Q_SESSION_EQ
+      - Q_EPK_SPARK
     - id: SPARK_NESTED_VECTORIZATION
       property: spark.sql.orc.enableNestedColumnVectorizedReader
       values:
       - false
       - true
       queries:
-      - Q11
-      - Q12
-      - NP_ARRAY_EPK_SPARK
+      - Q_EPK_SPARK
       requires:
       - native_orc_reader
       - nested_columns
@@ -431,27 +433,27 @@ benchmark:
       values:
       - false
       - true
+      note: Hive is not the SM_UKO archive-query path. Queries here are the LIKE equivalents.
       queries:
-      - Q02
-      - Q08
-      - Q09
+      - Q_SESSION_EQ
+      - Q_USERLOGIN
+      - Q_EPK_HIVE
     - id: HIVE_CBO
       property: hive.cbo.enable
+      status: excluded_from_sm_uko
+      reason: the logged workload has no joins and no aggregations.
       values:
       - false
       - true
-      queries:
-      - Q09
-      - Q10
+      queries: []
     - id: HIVE_TEZ_BASE
       engine: tez
       llap: false
       queries:
-      - Q01
-      - Q02
-      - Q08
-      - Q09
-      - Q10
+      - Q_SESSION_LIKE_HIVE
+      - Q_SESSION_EQ
+      - Q_USERLOGIN
+      - Q_UNFILTERED
       session_overrides:
         hive.llap.execution.mode: none
       requires:
@@ -463,12 +465,11 @@ benchmark:
       - cold
       - warm
       queries:
-      - Q01
-      - Q02
-      - Q08
-      - Q09
-      - Q10
-      - Q15
+      - Q_SESSION_LIKE_HIVE
+      - Q_SESSION_EQ
+      - Q_USERLOGIN
+      - Q_UNFILTERED
+      - Q_FULLTEXT
       session_overrides:
         hive.llap.execution.mode: only
       requires:
@@ -487,13 +488,13 @@ benchmark:
       - llap_daemons_running
       - llap_task_execution_verified
       queries:
-      - Q01
-      - Q02
+      - Q_SESSION_LIKE_HIVE
+      - Q_SESSION_EQ
     - id: HIVE_MATERIALIZED_VIEW
+      status: excluded_from_sm_uko
       requires:
       - materialized_views_supported
-      queries:
-      - Q18
+      queries: []
     - id: HIVE_LLAP_PREFLIGHT
       requires:
       - tez_version_verified
@@ -502,26 +503,30 @@ benchmark:
   final_comparison:
     physical_dataset: BEST_ORC
     engines:
-    - SPARK_BASE
-    - SPARK_OPTIMIZED
-    - HIVE_TEZ_BASE
-    - HIVE_LLAP_COLD
-    - HIVE_LLAP_WARM
+    - SPARK_COMMON
     require_identical_file_manifest: true
     require_equal_query_results: true
     queries:
-    - Q01
-    - Q02
-    - Q03
-    - Q06
-    - Q07_NARROW
-    - Q07_WIDE
-    - Q08
-    - Q09
-    - Q10
+    - Q_SESSION_ILIKE
+    - Q_SESSION_EQ
+    - Q_EPK_SPARK
+    - Q_FULLTEXT
+    - Q_USERNODE
+    - Q_USERLOGIN
+    - Q_MODULE_NAME_EPK_FILE
+    - Q_OTHER_PARAM
+    - Q_ABSENT_PARAM
+    - Q_UNFILTERED
     excluded_queries:
-      Q18: materialized_views_supported false
-      Q04: stays in layout-experiment core (2.4)
+      Q_SESSION_EQ_NARROW: column-pruning contrast only
+      HIVE_MATERIALIZED_VIEW: no materialized views on this cluster, and the log has no such query
+  orc_engine_track:
+    note: Hive/LLAP is not how this index is queried. Profiles stay for a separate ORC comparison.
+    engines:
+    - HIVE_TEZ_BASE
+    - HIVE_LLAP_COLD
+    - HIVE_LLAP_WARM
+    - SPARK_BASE
   cache_state_definitions:
     cold: first measured run before warmup loop
     warm: measured runs after warmup_per_query=5
@@ -537,10 +542,17 @@ benchmark:
     array_separator: '0x1F'
     hash: SHA-256 over sorted per-row 128-bit row hashes
     scope: identical rules for Spark and Hive
+    fulltext_hashes: engine-local, because CAST of arrays renders differently
   best_orc_rule:
-    objective: min p50 over {Q02, Q03, Q07_NARROW}
+    objective: min p50 over {Q_SESSION_EQ}
+    report_queries:
+    - Q_SESSION_ILIKE
+    - Q_EPK_SPARK
+    - Q_FULLTEXT
+    - Q_USERNODE
+    - Q_USERLOGIN
     sla_gate: success_rate >= 0.95
-    tie_break: partitioned > sorted > baseline
+    tie_break: session bloom > time-sorted hourly baseline
     excluded_candidates: ZSTD (Hive side ORC 1.5.6 codec gap; Spark ZSTD kept; Hive ZSTD deferred until codec support)
   execution_policy:
     layout_lifetime: materialized on prepare, cleaned after stage (except candidates / --keep-layouts)
@@ -549,24 +561,29 @@ benchmark:
       generate: calibrated by pilot run
       run: 10 x p95 measured
     capacity_check: warn (per-datanode free space, cluster is skewed per report 2026-10-16)
-    scales: S=100/M=500/L=1024 GB per dataset.yaml; L materialized one layout at a time
+    scales: S=1 old-era hour / M=1 day / L=120 hours per dataset.yaml; L is one layout at a time
+    partition_read:
+      batch_size: 20
+      typical_session_query_batches: 6
+      mode: runner supplies partition paths; SQL has no time predicate
   runs:
     warmup_per_query: 5
     measured_per_query: 30
-    # Candidate ceiling; actual levels are chosen per scale from cluster capacity (not a fixed MVP set).
-    # Pilot S (CP10) narrow filter + start concurrency 1,5: see conf/pilot-s.yaml / scripts/run-pilot-s.sh.
+    workload_mix_source: query_suite.workload_mix
+    measurement_note: each template is timed on its own. Mix weights score the combination; rare templates are still measured.
+    # Common profile fits about 9 apps on an idle pool (81 cores / 9). 25 and 50 do not fit.
     concurrency_levels:
     - 1
     - 5
-    - 10
-    - 25
-    - 50
-    concurrency_policy: per_scale_capacity_aware
+    - 9
+    concurrency_policy: prod_common_core_bound
     cache_states_not_aggregated: true
     record_explain_plans: true
     compare_complete_results: true
-    timing_scope: driver_submit_to_complete_result_consumption
+    timing_scope: spark event log, application start through application end
+    timing_note: Postgres final_status_ts includes the archive-query queue and is not a benchmark metric.
     max_fetch_rows: 10000000
+    max_fetch_note: covers the 6.5e6-row EPK-file case. The journal outlier of 1.056e10 rows is outside NT.
   metrics:
     required:
     - latency_ms
@@ -588,8 +605,12 @@ benchmark:
     - shuffle_write_bytes
     - spill_bytes
     - cache_hit_ratio
+    - yarn_queue_delay_ms
+    - executor_alloc_delay_ms
+    - spark_runtime_ms
     unavailable_metric_value: null
-    sla_success_threshold_ms: 3000
+    sla_success_threshold_ms: 7200000
+    aspirational_optimized_latency_ms: 3000
   configuration_validation:
     reject_query_referencing_missing_column: true
     require_reader_profile_override_applied: true

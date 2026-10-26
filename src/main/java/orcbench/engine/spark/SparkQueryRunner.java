@@ -2,6 +2,7 @@ package orcbench.engine.spark;
 
 import orcbench.engine.QueryTemplate;
 import orcbench.engine.QueryTemplate.BoundQuery;
+import orcbench.engine.QueryTemplate.RejectedQuery;
 import orcbench.engine.ResultDigest;
 import orcbench.io.ResultStore;
 import orcbench.engine.spark.SparkQueryBackend.QueryExecResult;
@@ -223,15 +224,15 @@ public final class SparkQueryRunner {
 
         Long orcBytes = backend.estimateOrcBytes(layout);
 
+        String dialect = "spark_3_2";
         List<BoundQuery> queries = QueryTemplate.queriesForExperiment(
                 cfg.queries,
                 effectiveQueries(inst),
-                "spark_3_2",
+                dialect,
                 table,
                 samples == null ? new QuerySampleManifest() : samples,
                 inst.representation);
-        if (queries.isEmpty()) {
-            results.add(skipped(runId, inst, "no bound queries for dialect spark_3_2"));
+        if (!recordRejections(results, runId, inst, cfg, dialect, queries)) {
             return results;
         }
 
@@ -426,13 +427,46 @@ public final class SparkQueryRunner {
         return r;
     }
 
+    /**
+     * @return false when nothing is left to measure (rejections already recorded)
+     */
+    private static boolean recordRejections(
+            List<RunResult> results,
+            String runId,
+            ExperimentInstance inst,
+            LoadedConfig cfg,
+            String dialect,
+            List<BoundQuery> queries) {
+        List<RejectedQuery> rejected = QueryTemplate.unboundQueries(
+                cfg.queries, effectiveQueries(inst), dialect, inst.representation);
+        List<BoundQuery> runnable = QueryTemplate.runnableQueries(
+                queries, inst.partitionColumns, rejected);
+        queries.clear();
+        queries.addAll(runnable);
+        for (RejectedQuery rq : rejected) {
+            results.add(skipped(runId, inst, rq.queryId, rq.reason));
+        }
+        if (queries.isEmpty()) {
+            if (rejected.isEmpty()) {
+                results.add(skipped(runId, inst, "no bound queries for dialect " + dialect));
+            }
+            return false;
+        }
+        return true;
+    }
+
     private static RunResult skipped(String runId, ExperimentInstance inst, String reason) {
+        return skipped(runId, inst, "*", reason);
+    }
+
+    private static RunResult skipped(
+            String runId, ExperimentInstance inst, String queryId, String reason) {
         RunResult r = new RunResult();
         r.runId = runId;
         r.experimentId = inst.experimentId;
         r.variantLabel = inst.variantLabel;
         r.engine = "spark";
-        r.queryId = "*";
+        r.queryId = queryId;
         r.status = "skipped";
         r.resultHash = "";
         r.errorMessage = reason;

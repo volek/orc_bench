@@ -15,13 +15,13 @@ public final class EventRow {
     public final String userNode;
     public final String module;
     public final String name;
+    /** Empty string, or null for MONITORING. */
     public final String userName;
     public final String metamodelVersion;
-    /** Always empty list (never null) — {@code dataset.null_semantics.tags}. */
+    /** Three elements: CImodule, namespace, pod. Never null. */
     public final List<String> tags;
     /**
-     * Parallel to {@code paramName}: elements are null (not empty string) —
-     * {@code dataset.null_semantics.paramOldValue}.
+     * Parallel to {@code paramName}: elements are null (not empty string).
      */
     public final List<String> paramOldValue;
     public final List<String> paramName;
@@ -29,6 +29,13 @@ public final class EventRow {
     public final String archiveInternalId;
     public final long archiveInsertTimeMs;
     public final long timeMs;
+    public final String id;
+    public final String sourceSystem;
+    public final String metamodelHash;
+    /** Filled only for MONITORING; otherwise null. */
+    public final String nodeId;
+    /** Always null on this index. */
+    public final String requestId;
 
     public EventRow(
             String userLogin,
@@ -45,7 +52,12 @@ public final class EventRow {
             List<String> paramValue,
             String archiveInternalId,
             long archiveInsertTimeMs,
-            long timeMs) {
+            long timeMs,
+            String id,
+            String sourceSystem,
+            String metamodelHash,
+            String nodeId,
+            String requestId) {
         this.userLogin = userLogin;
         this.createdAtMs = createdAtMs;
         this.session = session;
@@ -57,10 +69,15 @@ public final class EventRow {
         this.tags = immutableCopy(tags);
         this.paramOldValue = immutableCopyNullable(paramOldValue);
         this.paramName = immutableCopy(paramName);
-        this.paramValue = immutableCopy(paramValue);
+        this.paramValue = immutableCopyNullable(paramValue);
         this.archiveInternalId = archiveInternalId;
         this.archiveInsertTimeMs = archiveInsertTimeMs;
         this.timeMs = timeMs;
+        this.id = id;
+        this.sourceSystem = sourceSystem;
+        this.metamodelHash = metamodelHash;
+        this.nodeId = nodeId;
+        this.requestId = requestId;
     }
 
     private static List<String> immutableCopy(List<String> in) {

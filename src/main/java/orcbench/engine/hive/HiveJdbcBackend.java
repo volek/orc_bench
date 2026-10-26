@@ -20,8 +20,15 @@ public interface HiveJdbcBackend extends AutoCloseable {
     void ensureExternalTable(String tableName, String ddl, boolean repairPartitions)
             throws Exception;
 
-    /** Best-effort register of reference dictionaries (name → HDFS location). */
+    /** Register reference dictionaries (name → HDFS location) with an explicit schema. */
     void ensureRefTables(Map<String, String> nameToLocation) throws Exception;
+
+    /**
+     * Independent session for one concurrency slot. HiveServer2 connections
+     * are single-threaded; sharing one connection across a pool kills Tez DAGs.
+     * The caller closes the returned backend when it is not {@code this}.
+     */
+    HiveJdbcBackend openSession() throws Exception;
 
     /** Total bytes under layout path, or null if unknown. */
     Long estimateOrcBytes(String layoutPath);

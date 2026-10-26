@@ -62,6 +62,6 @@ java -cp build/libs/orc-bench-0.1.0-SNAPSHOT-all.jar orcbench.Main \
   --env-override conf/environment.local.yaml
 ```
 
-По умолчанию `spark-submit`: `--deploy-mode cluster`, `--queue default`, executors `10×4×16g`. Режим client отключён: скрипты его не принимают.
+По умолчанию `spark-submit`: `--deploy-mode cluster`, `--queue default`, executors `4×2×3g` (профиль archive-query common), driver `1×2g`. Режим client отключён: скрипты его не принимают.
 
 Runtime-контракт: `conf/` (копия `docs/orc_hdfs_spark_hive_configs_final/`).

@@ -1,6 +1,6 @@
 # Запуск orc-bench на Hadoop-кластере
 
-Инструкция для прогона Pilot S (масштаб S = 100 GB) и забора результатов. Команды шагов 2–10 выполняются в SSH-сессии на узле кластера, из каталога с распакованным бандлом (ниже — `/opt/orc-bench`). Сборка и упаковка — на машине разработки.
+Инструкция для прогона Pilot S (один час старой эпохи индекса SM_UKO, около 9,7 ГБ сжатых) и забора результатов. Те же фазы для суток (M) и окна 120 часов (L) — в шагах 5–8: их запускает `run-benchmark.sh`, потому что `run-pilot-s.sh` всегда ставит `--scale S`. Команды шагов 2–10 выполняются в SSH-сессии на узле кластера, из каталога с распакованным бандлом (ниже — `/opt/orc-bench`). Сборка и упаковка — на машине разработки.
 
 | | |
 |---|---|
@@ -30,7 +30,7 @@
 
 Данные generate и отчёты — разные деревья. Очистка одного дерева другое не трогает.
 
-Живой запуск отвязан от терминала. Скрипт печатает `application_<id>` и завершается; ApplicationMaster на YARN продолжает работу после обрыва SSH. В App Manager колонка Name — имя этой фазы, не класс `orcbench.Main`: `orc-bench <фаза> <масштаб>`, а если переданы — движки и список экспериментов. Пример прогона: `orc-bench run S spark ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION`. Своё имя задаётся `--name` или `ORC_BENCH_APP_NAME`. `runId` появляется уже внутри драйвера. Его каталог виден так:
+Живой запуск отвязан от терминала. Скрипт печатает `application_<id>` и завершается; ApplicationMaster на YARN продолжает работу после обрыва SSH. В App Manager колонка Name — имя этой фазы, не класс `orcbench.Main`: `orc-bench <фаза> <масштаб>`, а если переданы — движки и список экспериментов. Пример прогона: `orc-bench run S spark ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION`. Своё имя задаётся `--name` или `ORC_BENCH_APP_NAME`. `runId` появляется уже внутри драйвера. Его каталог виден так:
 
 ```bash
 hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt
@@ -106,7 +106,7 @@ sed -i 's/\r$//' scripts/*.sh scripts/lib/*.sh
 cp conf/environment.local.yaml.example conf/environment.local.yaml
 ```
 
-В `environment.local.yaml` оставьте `deploy_mode: cluster`. Числа executor’ов на первый прогон: **10 × 4 × 16g**, очередь **`default`**. После прогона их правят по чеклисту §12.
+В `environment.local.yaml` оставьте `deploy_mode: cluster`. Числа executor’ов — профиль common: **4 × 2 × 3g**, overhead 512m, driver **1 × 2g**, очередь **`default`**.
 
 Keytab должен лежать по пути из `conf/environment.yaml`:
 
@@ -235,15 +235,71 @@ hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/manifest
 hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test/S
 ```
 
-Ориентир: логический объём S = 100 GB, порядка 89 млн строк. Каталог `RAW_ARRAY_BASE` должен быть непустым. Лог драйвера этой фазы: `hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log`. В конце ожидается `[orc-bench] OK — generate`.
+Ориентир: scale S — один час старой эпохи, около 9,7 ГБ сжатых ZLIB и около 37 млн строк (логический объём ~262 ГиБ). Каталог `RAW_ARRAY_BASE` должен быть непустым. Лог драйвера этой фазы: `hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/<runId>/driver.log`. В конце ожидается `[orc-bench] OK — generate`.
 
 Повторный generate без удаления `hdfs://sdp-dzo-lt-omlt/orc_test/S` перезаписывает базу, справочники и манифест. Layout’ы и маркеры остаются прежними — для нового materialize выполните §3.1 или §3.2.
+
+### 5.1. Generate scale M
+
+`run-pilot-s.sh` для M не подходит: он подставляет `--scale S`. Профиль Spark тот же, что у S: 4×2×3g, overhead 512m, driver 1×2g, очередь `default`.
+
+Scale M — сутки старой эпохи, 24 часа `2025-04-14`. Ориентир: около 233 ГБ сжатых ZLIB, около 901 млн строк, логический объём ~6291 ГиБ. С репликацией 2 это около 466 ГБ.
+
+Если каталог уже есть и его надо заменить вместе с layout’ами:
+
+```bash
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/M
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/state/M__*
+```
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale M --phase generate \
+  --env-override conf/environment.local.yaml
+```
+
+Дождитесь `SUCCEEDED`. Проверка:
+
+```bash
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/M/RAW_ARRAY_BASE
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/M/refs
+hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/M/manifest
+hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test/M
+```
+
+Каталог `RAW_ARRAY_BASE` должен быть непустым. В конце `driver.log` — `[orc-bench] OK — generate`.
+
+### 5.2. Generate scale L
+
+Scale L — 120 часов, пять суток `2025-04-14`…`2025-04-19` (не включая конец). Ориентир: около 1165 ГБ сжатых ZLIB (~1,17 ТБ), около 4,5 млрд строк, логический объём ~31455 ГиБ. С репликацией 2 один layout занимает около 2,3 ТиБ.
+
+Бюджет тестовых данных — около 3 ТиБ с репликами. Один layout L его почти заполняет. Перед generate снимите с HDFS scale S и M, если они ещё лежат, и проверьте свободное место:
+
+```bash
+hdfs dfs -df -h hdfs://sdp-dzo-lt-omlt/orc_test
+hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test
+```
+
+Очистка предыдущего L:
+
+```bash
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/L
+hdfs dfs -rm -r hdfs://sdp-dzo-lt-omlt/orc_test/state/L__*
+```
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale L --phase generate \
+  --env-override conf/environment.local.yaml
+```
+
+Проверка — те же `hdfs dfs -ls` и `hdfs dfs -du -h`, с `L` вместо `M`. Каталог `hdfs://sdp-dzo-lt-omlt/orc_test/L/RAW_ARRAY_BASE` должен быть непустым.
 
 ---
 
 ## Шаг 6. Materialize (Pilot S)
 
-Пишет три семейства layout’ов поверх `RAW_ARRAY_BASE`: `MINMAX_SORT`, `BLOOM_USER`, `PARTITIONING`.
+Пишет layout `BLOOM_SESSION` поверх `RAW_ARRAY_BASE`: тот же часовой ZLIB-набор, плюс bloom по `session`. Часовая партиция и сортировка по `__time` уже в baseline.
 
 ```bash
 ./scripts/run-pilot-s.sh --phase materialize \
@@ -257,16 +313,38 @@ hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S
 hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/state
 ```
 
-Рядом с `RAW_ARRAY_BASE` появляются каталоги экспериментов. В `hdfs://sdp-dzo-lt-omlt/orc_test/state/` — файлы `S__MINMAX_SORT__…done`, `S__BLOOM_USER__…done`, `S__PARTITIONING__…done`. Повторный materialize с теми же маркерами новые ORC не пишет: в `driver.log` строка `[materialize] skip (marker)`. Чтобы записать layout заново, удалите пару «каталог + маркер» (§3.2) и запустите эту команду снова.
+Рядом с `RAW_ARRAY_BASE` появляются каталоги эксперимента. В `hdfs://sdp-dzo-lt-omlt/orc_test/state/` — файлы `S__BLOOM_SESSION__…done`. Повторный materialize с теми же маркерами новые ORC не пишет: в `driver.log` строка `[materialize] skip (marker)`. Чтобы записать layout заново, удалите пару «каталог + маркер» (§3.2) и запустите эту команду снова.
 
 Эквивалент без обёртки пилота:
 
 ```bash
 ./scripts/run-benchmark.sh \
   --scale S --phase materialize \
-  --experiments MINMAX_SORT,BLOOM_USER,PARTITIONING \
+  --experiments BLOOM_SESSION \
   --env-override conf/environment.local.yaml
 ```
+
+### 6.1. Materialize scale M и L
+
+Тот же эксперимент `BLOOM_SESSION`: часовой ZLIB-набор baseline плюс bloom по `session`. Партиция `key` и сортировка по `__time` уже в baseline и заново не пишутся.
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale M --phase materialize \
+  --experiments BLOOM_SESSION \
+  --env-override conf/environment.local.yaml
+```
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale L --phase materialize \
+  --experiments BLOOM_SESSION \
+  --env-override conf/environment.local.yaml
+```
+
+Маркеры: `hdfs://sdp-dzo-lt-omlt/orc_test/state/M__BLOOM_SESSION__…done` и `L__BLOOM_SESSION__…done`. Повтор с тем же маркером запись пропускает. Чтобы переписать layout, удалите каталог и маркер (§3.2, с `M` или `L` вместо `S`).
+
+`BLOOM_SESSION` — вторая полная копия данных. Для M это ещё около 466 ГБ с репликами. Для L — ещё около 2,3 ТиБ. Baseline и bloom L вместе в бюджет 3 ТиБ не входят. На L эту фазу запускайте только после `hdfs dfs -df -h`, когда свободного места хватает на вторую копию, и не держите рядом scale S и M.
 
 ---
 
@@ -274,7 +352,7 @@ hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/state
 
 Движок `spark`, эксперименты:
 
-`ORC_COLUMN_PRUNING`, `ORC_PUSHDOWN`, `MINMAX_SORT`, `BLOOM_USER`, `PARTITIONING`, `SPARK_VECTORIZATION`.
+`ORC_COLUMN_PRUNING`, `ORC_PUSHDOWN`, `BLOOM_SESSION`, `SPARK_VECTORIZATION`.
 
 `ORC_COLUMN_PRUNING` и `ORC_PUSHDOWN` читают `RAW_ARRAY_BASE`. `SPARK_VECTORIZATION` отдельный layout не создаёт. На каждую измеряемую ячейку: 5 прогревов и 30 замеров (`benchmark.yaml`). Прогон длинный: скрипт submit завершится сразу после `application_<id>`, приложение останется в YARN.
 
@@ -323,6 +401,32 @@ Hive Tez / LLAP в Pilot S не входят. Отдельный прогон, �
   --env-override conf/environment.local.yaml
 ```
 
+Для M и L в этой команде меняется только `--scale`.
+
+### 7.1. Прогон запросов scale M и L
+
+Те же движок и эксперименты, что у Pilot S: `spark` и `ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION`. `ORC_COLUMN_PRUNING` и `ORC_PUSHDOWN` читают `RAW_ARRAY_BASE` своего масштаба. На каждую ячейку по-прежнему 5 прогревов и 30 замеров.
+
+Из кандидатов 1, 5 и 9 приложение само оставляет уровни, которые входят в масштаб. Для M остаются 1, 5 и 9. Для L — 1 и 5: уровень 9 на этом объёме не ставится.
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale M --phase run \
+  --engines spark \
+  --experiments ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION \
+  --env-override conf/environment.local.yaml
+```
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale L --phase run \
+  --engines spark \
+  --experiments ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION \
+  --env-override conf/environment.local.yaml
+```
+
+Имя в YARN: `orc-bench run M spark ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION` (для L — `run L`). Дальше так же, как у S: записать `application_<id>`, найти `<runId>` в `hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt` и смотреть `driver.log` и `metrics.jsonl`, пока приложение `RUNNING`. Этот `<runId>` нужен шагу 8. Прогон M и прогон L — разные приложения и разные `<runId>`.
+
 ---
 
 ## Шаг 8. Отчёт и сравнение
@@ -338,6 +442,22 @@ Hive Tez / LLAP в Pilot S не входят. Отдельный прогон, �
   --run-id <runId> \
   --env-override conf/environment.local.yaml
 ```
+
+Для M и L `run-pilot-s.sh` не используйте: он снова подставит `--scale S`. Отчёт читает `metrics.jsonl` указанного `<runId>` и запросы не исполняет. Масштаб в команде должен совпадать с прогоном шага 7.
+
+```bash
+./scripts/run-benchmark.sh \
+  --scale M --phase report \
+  --run-id <runId> \
+  --env-override conf/environment.local.yaml
+
+./scripts/run-benchmark.sh \
+  --scale M --phase final \
+  --run-id <runId> \
+  --env-override conf/environment.local.yaml
+```
+
+Для L те же две команды с `--scale L` и `<runId>` прогона L. Каталог отчёта тот же: `hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/`.
 
 После `SUCCEEDED` в `hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/`:
 
@@ -419,11 +539,11 @@ hdfs dfs -get \
 
 | Что | Значение |
 |---|---|
-| Scale | S = 100 GB |
-| Executors, старт | 10 × 4 × 16g, `deploy_mode=cluster`, очередь `default` |
-| Concurrency, старт | 1 и 5 |
-| materialize | `MINMAX_SORT,BLOOM_USER,PARTITIONING` |
-| run | `ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION` |
+| Scale | S = один час старой эпохи (~9,7 ГБ сжатых, ~262 ГиБ логических) |
+| Executors, старт | 4 × 2 × 3g, overhead 512m, driver 1 × 2g, `deploy_mode=cluster`, очередь `default` |
+| Concurrency, старт | 1 и 5 (потолок профиля common на свободном стенде — 9) |
+| materialize | `BLOOM_SESSION` |
+| run | `ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION` |
 | Движок пилота | `spark` |
 
 Порядок на узле: шаг 3 при необходимости → preflight → generate → materialize → run → report → final → fetch → §12.
@@ -435,7 +555,7 @@ hdfs dfs -get \
 | Файл | Содержание |
 |---|---|
 | `metrics.jsonl` | Одна строка JSON на измерение: `runId`, `experimentId`, `variantLabel`, `engine`, `queryId`, `repetition`, `warmup`, `concurrency`, `cacheState`, `latencyMs`, `status`, `resultHash`, `logicalRows`, `orcFileBytes`, `hdfsBytesRead` |
-| `summary.csv` | Агрегат ячейки: `n`, `avgMs`, `p50Ms`, `p95Ms`, `p99Ms`, `slaSuccessRate`, `scanRatio`, `resultHash`, `slaPass`. SLA: latency ≤ 3000 ms, `slaPass` при доле успехов ≥ 0.95 |
+| `summary.csv` | Агрегат ячейки: `n`, `avgMs`, `p50Ms`, `p95Ms`, `p99Ms`, `slaSuccessRate`, `scanRatio`, `resultHash`, `slaPass`. Порог приемлемого времени — 2 часа. 3000 ms — только цель для `Q_SESSION_EQ` после bloom по `session`. `slaPass` при доле успехов ≥ 0.95 |
 | `skipped.tsv` | Эксперимент и причина пропуска |
 | `SUMMARY.txt` | Счётчики, SLA, блок BEST_ORC |
 | `final_comparison.tsv` | Профили движков на layout BEST_ORC |
@@ -476,10 +596,11 @@ spark-submit \
   --master yarn \
   --deploy-mode cluster \
   --queue default \
-  --num-executors 10 \
-  --executor-cores 4 \
-  --executor-memory 16g \
-  --driver-memory 4g \
+  --num-executors 4 \
+  --executor-cores 2 \
+  --executor-memory 3g \
+  --driver-cores 1 \
+  --driver-memory 2g \
   --name "orc-bench preflight S" \
   --principal pvm-omltp-sdp@OPSMON.SBT \
   --keytab "$HOME/keytab/pvm-omltp-sdp.keytab" \
@@ -502,7 +623,7 @@ spark-submit \
 |---|---|
 | `application_<id>` есть, SSH уже закрыт | `yarn application -status application_<id>` и `hdfs dfs -tail` лога драйвера. Submit-сессия приложению не нужна |
 | Долго нет `metrics.jsonl` | Файл создаётся после первой ячейки. Смотрите `driver.log`: строка `[run] spark …` означает, что ячейка ещё считается |
-| `Java heap space` / `TaskResultLost` на Q07 | Старый jar вызывает `collect()` всего результата на драйвер. Нужен jar, где число строк и хеш считаются на экзекуторах. Память драйвера в submit — 4g (`--driver-memory`) |
+| `Java heap space` / `TaskResultLost` на `SELECT *` | Старый jar вызывает `collect()` всего результата на драйвер. Нужен jar, где число строк и хеш считаются на экзекуторах. Память драйвера профиля common — 2g (`--driver-memory`) |
 | Materialize сразу `skip (marker)` | Маркер уже есть. Для перезаписи — §3.2 |
 | Generate прошёл, materialize пишет, что нет `RAW_ARRAY_BASE` | Проверьте `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE` |
 | `Permission denied` на `hdfs://sdp-dzo-lt-omlt/orc_test` | Права principal’а: `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test` и пробная запись preflight `--live` |
@@ -526,13 +647,13 @@ spark-submit \
 
 | Параметр | Старт |
 |---|---|
-| Scale | S = 100 GB |
-| `executor_instances` / `cores` / `memory_gib` | 10 / 4 / 16 |
+| Scale | S = один час старой эпохи (~9,7 ГБ сжатых) |
+| `executor_instances` / `cores` / `memory_gib` | 4 / 2 / 3, overhead 512m, driver 1 / 2g |
 | `deploy_mode` | cluster |
-| YARN | 6 datanode, Effective_Max 221184 MB (~216 GiB), 67 vCores |
+| YARN | 6 datanode, Effective_Max очереди 221184 MB (~216 GiB), 67 vCores |
 | Concurrency | 1, 5 |
 
-Оценка старта: около 40 vCores и 160–168 GiB.
+Оценка старта: 4×2+1 = 9 vCores и около 19 ГБ на одно приложение.
 
 ### 12.2. Наблюдения
 
@@ -562,11 +683,11 @@ spark-submit \
 | Вопрос | Решение |
 |---|---|
 | Матрица шире Pilot S | yes / no / later — ________ |
-| Отдельная калибровка M = 500 GB | yes / no / later — ________ |
-| Отдельная калибровка L = 1024 GB | yes / no / later — ________ |
+| Отдельная калибровка M (сутки, ~233 ГБ сжатых) | yes / no / later — ________ |
+| Отдельная калибровка L (120 часов, ~1,17 ТБ сжатых) | yes / no / later — ________ |
 | Concurrency 25 и 50 на S | только при свободной ёмкости очереди |
 
-M и L калибруют отдельно. Числа S на них сами не переносятся. Перед M или L повторите шаги 3–9 со `--scale M` или `--scale L` и своей очисткой `hdfs://sdp-dzo-lt-omlt/orc_test/M` или `hdfs://sdp-dzo-lt-omlt/orc_test/L` (маркеры `M__*` / `L__*`). Обёртка `run-pilot-s.sh` всегда ставит `--scale S`; для M/L вызывайте `run-benchmark.sh --scale M`.
+M и L калибруют отдельно. Числа S на них сами не переносятся. Команды generate, materialize, run, report и final — в §5.1–§5.2, §6.1, §7.1 и шаге 8. Обёртка `run-pilot-s.sh` всегда ставит `--scale S`.
 
 ---
 
@@ -578,7 +699,7 @@ M и L калибруют отдельно. Числа S на них сами н
 |---|---|---|
 | `--config` | `conf` | Каталог YAML |
 | `--env-override` | — | Overlay, обычно `conf/environment.local.yaml` |
-| `--scale` | `S` | `S` 100 GB, `M` 500 GB, `L` 1024 GB |
+| `--scale` | `S` | `S` один час (~9,7 ГБ сжатых), `M` сутки (233 ГБ), `L` 120 часов (~1,17 ТБ) |
 | `--phase` | `all` | `preflight`, `generate`, `materialize`, `run`, `report`, `final`, `all` |
 | `--experiments` | все | Список id через запятую. Пилот подставляет свой |
 | `--engines` | `spark,hive_tez,hive_llap` | Пилот на `run` подставляет `spark` |

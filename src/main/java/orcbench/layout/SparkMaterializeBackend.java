@@ -20,8 +20,8 @@ import java.util.Locale;
 import static org.apache.spark.sql.functions.array_position;
 import static org.apache.spark.sql.functions.arrays_zip;
 import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.date_format;
 import static org.apache.spark.sql.functions.element_at;
-import static org.apache.spark.sql.functions.get_json_object;
 import static org.apache.spark.sql.functions.hour;
 import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.map_from_arrays;
@@ -100,6 +100,9 @@ public final class SparkMaterializeBackend implements MaterializeBackend {
             }
             if (request.partitionColumns.contains("event_hour")) {
                 df = df.withColumn("event_hour", hour(col("__time")));
+            }
+            if (request.partitionColumns.contains("key")) {
+                df = df.withColumn("key", date_format(col("__time"), "yyyy-MM-dd--HH"));
             }
         }
         if (request.sorting != null && !request.sorting.isEmpty()) {
@@ -216,17 +219,9 @@ public final class SparkMaterializeBackend implements MaterializeBackend {
         Dataset<Row> df = base;
         List<String> cols = flatCols == null ? java.util.Collections.<String>emptyList() : flatCols;
         for (String colName : cols) {
-            if ("device_system_name".equals(colName)) {
-                df = df.withColumn("device_system_name",
-                        get_json_object(
-                                element_at(col("paramValue"),
-                                        array_position(col("paramName"), lit("MOBILE_SDK_DATA"))),
-                                "$.DeviceSystemName"));
-            } else {
-                String key = paramKey(colName);
-                df = df.withColumn(colName,
-                        element_at(col("paramValue"), array_position(col("paramName"), lit(key))));
-            }
+            String key = paramKey(colName);
+            df = df.withColumn(colName,
+                    element_at(col("paramValue"), array_position(col("paramName"), lit(key))));
         }
         if (!keepOriginal) {
             df = df.drop("paramName", "paramValue", "paramOldValue", "tags");
@@ -242,8 +237,6 @@ public final class SparkMaterializeBackend implements MaterializeBackend {
                 return "SESSION_ID";
             case "operation_uid":
                 return "OPERATION_UID";
-            case "channel_type":
-                return "CHANNEL_TYPE";
             case "vsp_code":
                 return "VSP_CODE";
             case "osb_code":
