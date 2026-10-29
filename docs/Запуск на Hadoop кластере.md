@@ -19,7 +19,7 @@ Pilot S — один час старой эпохи, ключ `2025-04-14--12`, 
 
 | Фаза | Что исполняется | Новый ORC |
 |---|---|---|
-| generate | `RAW_ARRAY_BASE`, `refs/`, `manifest/` | да, базовая копия |
+| generate | `RAW_ARRAY_BASE`, `manifest/`; `refs/` может отсутствовать | да, базовая копия |
 | materialize | `BLOOM_SESSION`: пустой bloom и bloom по `session` | да, две копии |
 | run | `ORC_COLUMN_PRUNING`, `ORC_PUSHDOWN`, `BLOOM_SESSION`, `SPARK_VECTORIZATION` | нет |
 | report | агрегаты и блок BEST_ORC по уже записанным метрикам | нет |
@@ -44,7 +44,7 @@ Pilot S — один час старой эпохи, ключ `2025-04-14--12`, 
 | Что | Путь |
 |---|---|
 | Базовый ORC, scale S | `hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE/` |
-| Справочники и манифест | `hdfs://sdp-dzo-lt-omlt/orc_test/S/refs/`, `.../S/manifest/` |
+| Манифест; справочники, если включены | `hdfs://sdp-dzo-lt-omlt/orc_test/S/manifest/`. Каталога `.../S/refs/` может не быть |
 | Bloom, пустой список | `hdfs://sdp-dzo-lt-omlt/orc_test/S/BLOOM_SESSION_bloom_columns=__` |
 | Bloom по `session` | `hdfs://sdp-dzo-lt-omlt/orc_test/S/BLOOM_SESSION_bloom_columns=_session_` |
 | Маркеры | `hdfs://sdp-dzo-lt-omlt/orc_test/state/S__BLOOM_SESSION__….done` |
@@ -252,10 +252,11 @@ hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/<runId>/skipped.tsv
 
 ```bash
 hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE
-hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/refs
 hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/manifest
 hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE
 ```
+
+Каталога `hdfs://sdp-dzo-lt-omlt/orc_test/S/refs` может не быть. `module_dictionary`, `epk_dictionary` и `partition_dates` в `conf/dataset.yaml` выключены, generate пишет туда ORC только для включённых справочников. Отсутствие `refs/` при `SUCCEEDED` ошибкой не является.
 
 Ожидаемый результат:
 
@@ -264,10 +265,10 @@ hdfs dfs -du -h hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE
 - Сжатие ZLIB. Цель страйпа 64 МиБ, цель файла 912 МиБ. Точное число файлов и точный размер страйпа в футере могут отличаться от цели; требование «ровно 7 файлов» к этому часу не относится.
 - Порядок полей в футере совпадает со списком выше. Безымянные заполнители обрываются на индексе 20.
 - `userLogin` у событий MONITORING остаётся пустой строкой.
-- В `refs/` есть справочник модулей. В `manifest/` — описание генерации. Эти файлы run для подстановки литералов не читает.
+- В `manifest/` — описание генерации. Run этот файл для подстановки литералов не читает.
 - Маркеров bloom ещё нет: materialize впереди.
 
-Повторный generate без удаления `S/` перезаписывает базу, справочники и манифест (`SaveMode.Overwrite`). Старые каталоги bloom и их маркеры остаются. После смены порядка колонок так не делают: сначала шаг 3.
+Повторный generate без удаления `S/` перезаписывает базу и манифест (`SaveMode.Overwrite`). Каталог `refs/` появляется только при включённых справочниках. Старые каталоги bloom и их маркеры остаются. После смены порядка колонок так не делают: сначала шаг 3.
 
 ---
 
