@@ -1,0 +1,6 @@
+[orc-bench] driver log: hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-29T10-32-37.708Z_0a9c4087/driver.log
+[orc-bench]   hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-29T10-32-37.708Z_0a9c4087/driver.log
+[orc-bench] driver spark.master=yarn deployMode=cluster yarnAppId=application_1792408590717_1014 SPARK_YARN_MODE=null
+[orc-bench] SparkSession opened for YARN cluster driver
+[orc-bench] NOTE: live generate writes ORC to HDFS under hdfs://sdp-dzo-lt-omlt/orc_test and requires spark-submit on a Hadoop cluster node. Local hosts should use --dry-run or --mock-generate.
+[generate] scale=S targetGiB=262 rows≈37509381 path=hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE dryRun=false mock=false

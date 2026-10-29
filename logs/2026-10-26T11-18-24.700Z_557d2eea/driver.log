@@ -1,0 +1,30 @@
+[orc-bench] driver log: hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/driver.log
+[orc-bench]   hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/driver.log
+[orc-bench] driver spark.master=yarn deployMode=cluster yarnAppId=application_1792408590717_0036 SPARK_YARN_MODE=null
+[orc-bench] SparkSession opened for YARN cluster driver
+[orc-bench] NOTE: live run requires spark-submit / Hive JDBC on a Hadoop cluster node (YARN + HDFS layouts + HS2). Local hosts should use --dry-run or --mock-run.
+[run] spark engine not requested — skip SparkQueryRunner
+[run] §1 Hive lever coverage in plan: {hive.vectorized.execution.enabled=true, hive.cbo.enable=true, hive.llap.execution.mode=true, hive.execution.engine=true}
+[run] hive cells=7 dryRun=false mock=false concurrencySelected=[1, 5]
+[run] hive HIVE_VECTORIZATION/hive.vectorized.execution.enabled=false engine=hive_tez
+[run] appended 105 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive HIVE_VECTORIZATION/hive.vectorized.execution.enabled=true engine=hive_tez
+[run] appended 105 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive HIVE_CBO/hive.cbo.enable=false engine=hive_tez
+[run] appended 70 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive HIVE_CBO/hive.cbo.enable=true engine=hive_tez
+[run] appended 70 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive HIVE_TEZ_BASE/HIVE_TEZ_BASE engine=hive_tez
+[run] appended 175 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] concurrency hive_tez=5
+[run] appended 775 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive HIVE_LLAP/HIVE_LLAP:cold engine=hive_llap llap
+[run] appended 175 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive HIVE_LLAP/HIVE_LLAP:warm engine=hive_llap llap
+[run] appended 175 hive rows to hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive complete attempts=1650 run=7 skipped=0
+[run] hive result scale=S planned=7 run=7 skipped=0 attempts=1650 dryRun=false mocked=false
+[run] hive metrics: hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[run] hive note: live Hive JDBC backend (cluster HS2)
+[run] hive note: wrote metrics.jsonl (1650 hive attempts) hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-26T11-18-24.700Z_557d2eea/metrics.jsonl
+[orc-bench] OK — run complete (Checkpoint 7: Spark + Hive).

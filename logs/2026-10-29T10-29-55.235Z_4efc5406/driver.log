@@ -1,0 +1,61 @@
+[orc-bench] driver log: hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-29T10-29-55.235Z_4efc5406/driver.log
+[orc-bench]   hdfs dfs -tail hdfs://sdp-dzo-lt-omlt/orc_test/logs/sdp-dzo-lt-omlt/2026-10-29T10-29-55.235Z_4efc5406/driver.log
+[orc-bench] driver spark.master=yarn deployMode=cluster yarnAppId=application_1792408590717_1013 SPARK_YARN_MODE=null
+[orc-bench] SparkSession opened for YARN cluster driver
+[orc-bench] NOTE: live preflight probes require a Hadoop cluster node (HDFS / Kerberos / Hive JDBC). Local machines should use --dry-run or unit tests.
+=== Preflight ===
+  version.hadoop = 3.1.3.3.5.4.1-1
+  version.hdfs.free_gib_observed = 18279
+  version.hive = 3.1.2.3.5.4.1-1
+  version.java = 1.8.0_292
+  version.java.runtime = 1.8.0_292
+  version.orc_generator = 1.6.12
+  version.orc_hive = 1.5.6
+  version.orc_spark = 1.6.12
+  version.scala = 2.12.15
+  version.spark = 3.2.1.3.5.4.1-1
+  version.tez = 0.9.1.3.5.4.1-1
+  capability.centralized_cache_supported = false
+  capability.client_datanode_colocation = true
+  capability.date_partitioned_table = true
+  capability.derived_event_date_partition = true
+  capability.hdfs_short_circuit_supported = true
+  capability.hdfs_writable = true
+  capability.hive_jdbc = true
+  capability.hive_session_allows_mode_override = true
+  capability.java8 = true
+  capability.kerberos_ticket = true
+  capability.llap_daemons_available = true
+  capability.llap_daemons_running = false
+  capability.llap_task_execution_verified = false
+  capability.materialized_views_supported = false
+  capability.native_orc_reader = true
+  capability.nested_columns = true
+  capability.nested_sql_dialect_variant = true
+  capability.partition_column_event_date = true
+  capability.partition_dimension_join = true
+  capability.tez_version_verified = true
+  capability.version_exact_java = true
+  note: version.orc_writer is null (fill via --env-override)
+  note: version.llap is null (fill via --env-override)
+  note: cluster config changes forbidden; SHORT_CIRCUIT / HDFS_CACHE.centralized may skip
+  note: cache reset forbidden; warm/cold relies on natural state
+  note: SHORT_CIRCUIT is observational (mutable_by_runner=false)
+  note: expected skip: HIVE_MATERIALIZED_VIEW (materialized_views_supported=false)
+  note: expected skip: HDFS_CACHE.centralized (centralized_cache.supported not true)
+  note: LLAP running not verified (llap_daemons_running_verified); HIVE_LLAP* may skip until cluster probe
+  note: live probes: cluster-node execution
+  note: writable=true freeGib=18279 workDir=hdfs://sdp-dzo-lt-omlt/orc_test
+  note: SELECT 1 ok
+  note: klist -s exit=1 (run kinit -kt ~/keytab/pvm-omltp-sdp.keytab pvm-omltp-sdp@OPSMON.SBT)
+  note: feature probe required: capability matrix populated from env + live/config probes
+  skipped (6):
+    - HDFS_CACHE/centralized: missing capabilities: centralized_cache_supported
+    - HIVE_LLAP/HIVE_LLAP:cold: missing capabilities: llap_daemons_running,llap_task_execution_verified
+    - HIVE_LLAP/HIVE_LLAP:warm: missing capabilities: llap_daemons_running,llap_task_execution_verified
+    - HIVE_LLAP_CACHE/HIVE_LLAP_CACHE:ws=0.25: missing capabilities: llap_daemons_running,llap_task_execution_verified
+    - HIVE_LLAP_CACHE/HIVE_LLAP_CACHE:ws=0.5: missing capabilities: llap_daemons_running,llap_task_execution_verified
+    - HIVE_LLAP_CACHE/HIVE_LLAP_CACHE:ws=1.0: missing capabilities: llap_daemons_running,llap_task_execution_verified
+[orc-bench] preflight artefacts: hdfs://sdp-dzo-lt-omlt/orc_test/results/sdp-dzo-lt-omlt/2026-10-29T10-29-55.235Z_4efc5406
+[orc-bench] skip-matrix cells=6
+[orc-bench] OK — preflight complete.
