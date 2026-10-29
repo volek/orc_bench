@@ -119,10 +119,11 @@ class ExperimentExpanderTest {
         List<Integer> candidates = cfg.benchmark.runs.concurrencyLevels;
 
         ConcurrencySelection s = ExperimentExpander.selectConcurrency(candidates, "S", yarn, spark);
-        assertEquals(Arrays.asList(1, 5, 9), s.levels);
+        // 10×16 GiB is about 74% of the 216 GiB queue, so level 9 is above the cap.
+        assertEquals(Arrays.asList(1, 5), s.levels);
 
         ConcurrencySelection m = ExperimentExpander.selectConcurrency(candidates, "M", yarn, spark);
-        assertEquals(Arrays.asList(1, 5, 9), m.levels);
+        assertEquals(Arrays.asList(1, 5), m.levels);
 
         ConcurrencySelection l = ExperimentExpander.selectConcurrency(candidates, "L", yarn, spark);
         // 10×4 cores is ~60% of the 67-vCore queue, so scale L stays at concurrency 1.
@@ -152,7 +153,7 @@ class ExperimentExpanderTest {
         assertFalse(plan.physical.isEmpty());
         assertFalse(plan.engine.isEmpty());
         assertFalse(plan.finalComparison.isEmpty());
-        assertEquals(Arrays.asList(1, 5, 9), plan.concurrencySelected);
+        assertEquals(Arrays.asList(1, 5), plan.concurrencySelected);
         assertTrue(plan.engine.stream().noneMatch(i -> i.llap),
                 "hive_llap not requested → no LLAP cells");
 

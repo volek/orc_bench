@@ -73,7 +73,7 @@ class ConfigLoaderTest {
         assertEquals("cluster", cfg.environment.environment.spark.deployMode);
         assertEquals(Integer.valueOf(10), cfg.environment.environment.spark.executorInstances);
         assertEquals(Integer.valueOf(4), cfg.environment.environment.spark.executorCores);
-        assertEquals(Integer.valueOf(8), cfg.environment.environment.spark.executorMemoryGib);
+        assertEquals(Integer.valueOf(16), cfg.environment.environment.spark.executorMemoryGib);
         assertEquals(Boolean.FALSE, cfg.environment.environment.hive.materializedViewsSupported);
 
         assertFalse(cfg.queries.queries.isEmpty());

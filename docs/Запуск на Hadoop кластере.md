@@ -132,7 +132,7 @@ sed -i 's/\r$//' scripts/*.sh scripts/lib/*.sh
 cp conf/environment.local.yaml.example conf/environment.local.yaml
 ```
 
-В `environment.local.yaml` оставьте `deploy_mode: cluster`. Профиль common: **4 × 2 × 3g**, overhead 512m, driver **1 × 2g**, очередь **`default`**. Одно приложение — 9 vCores и около 19 ГБ. Пул стенда (ориентир 81 ядро / 241 ГБ, Effective_Max очереди около 216 ГиБ и 67 vCores) вмещает несколько таких приложений. Стартовать с `10×4×16g` этот пилот не должен.
+В `environment.local.yaml` оставьте `deploy_mode: cluster`. Активный размер: **10 × 4 × 16g**, overhead 512m, driver **1 × 4g**, очередь **`default`**. Одно приложение — 41 vCore и около 169 ГБ. Очередь (около 216 ГиБ и 67 vCores, контейнер не больше 45 ГиБ) вмещает одно такое приложение.
 
 Keytab — по полям `conf/environment.yaml`:
 
@@ -672,11 +672,11 @@ spark-submit \
   --master yarn \
   --deploy-mode cluster \
   --queue default \
-  --num-executors 4 \
-  --executor-cores 2 \
-  --executor-memory 3g \
+  --num-executors 10 \
+  --executor-cores 4 \
+  --executor-memory 16g \
   --driver-cores 1 \
-  --driver-memory 2g \
+  --driver-memory 4g \
   --name "orc-bench preflight S" \
   --principal pvm-omltp-sdp@OPSMON.SBT \
   --keytab "$HOME/keytab/pvm-omltp-sdp.keytab" \
@@ -729,7 +729,7 @@ spark-submit \
 | Параметр | Старт |
 |---|---|
 | Scale | S, час `2025-04-14--12`, ~9,7 ГБ сжатых |
-| Executors | 4 / 2 / 3g, overhead 512m, driver 1 / 2g |
+| Executors | 10 / 4 / 16g, overhead 512m, driver 1 / 4g |
 | `deploy_mode` | cluster, очередь `default` |
 | Concurrency ячеек пилота | 1 |
 | Порядок колонок | футер `schema.orc.txt`, старый `S/` удалён до generate |

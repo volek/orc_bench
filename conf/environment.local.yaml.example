@@ -6,7 +6,7 @@ environment:
     deploy_mode: cluster
     executor_instances: 10
     executor_cores: 4
-    executor_memory_gib: 8
+    executor_memory_gib: 16
     executor_memory_overhead_mib: 512
     driver_cores: 1
     driver_memory_gib: 4

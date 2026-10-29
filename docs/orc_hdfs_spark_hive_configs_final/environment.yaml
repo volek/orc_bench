@@ -1,6 +1,6 @@
 # Confirmed facts from cluster output, unknowns preserved as null.
 # spec_version 3 (2026-10-26): SM_UKO actualization. Cluster facts below stay.
-# Active submit sizing is the flat spark.executor_* / driver_* block: 10×4×8g,
+# Active submit sizing is the flat spark.executor_* / driver_* block: 10×4×16g,
 # overhead 512m, driver 1×4g. layout_probe (10×4×16g) stays a separate profile.
 environment:
   id: sdp_3_5_4_1_1
@@ -68,11 +68,11 @@ environment:
     deploy_mode: cluster
     # Active submit size. Complexity multiplier ×2/×3 was not applied on prod and stays off.
     # Queue default: 216 GiB / 67 vCores; one container max on this cluster is 46080 MB.
-    # 10×(8 GiB+512 MiB) + driver 4 GiB is about 89 GiB and 41 vCores, inside both limits.
+    # 10×(16 GiB+512 MiB) + driver 4 GiB is about 169 GiB and 41 vCores, inside both limits.
     profile: prod_common
     executor_instances: 10
     executor_cores: 4
-    executor_memory_gib: 8
+    executor_memory_gib: 16
     executor_memory_overhead_mib: 512
     driver_cores: 1
     driver_memory_gib: 4
@@ -96,7 +96,7 @@ environment:
     prod_common:
       executor_instances: 10
       executor_cores: 4
-      executor_memory_gib: 8
+      executor_memory_gib: 16
       executor_memory_overhead_mib: 512
       driver_cores: 1
       driver_memory_gib: 4
