@@ -125,7 +125,8 @@ class ExperimentExpanderTest {
         assertEquals(Arrays.asList(1, 5, 9), m.levels);
 
         ConcurrencySelection l = ExperimentExpander.selectConcurrency(candidates, "L", yarn, spark);
-        assertEquals(Arrays.asList(1, 5), l.levels);
+        // 10×4 cores is ~60% of the 67-vCore queue, so scale L stays at concurrency 1.
+        assertEquals(Collections.singletonList(1), l.levels);
     }
 
     @Test

@@ -165,12 +165,21 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
         }
 
         @Override
-        public Iterator<Row> call(Iterator<Long> iter) {
-            List<Row> out = new ArrayList<>();
-            while (iter.hasNext()) {
-                out.add(toSparkRow(factory.create(iter.next())));
-            }
-            return out.iterator();
+        public Iterator<Row> call(final Iterator<Long> iter) {
+            // One row at a time. Scale S is ~10 partitions of ~3.75M rows on a 3g
+            // executor; buffering the partition into a List OOMs the task before
+            // Spark can spill the sort.
+            return new Iterator<Row>() {
+                @Override
+                public boolean hasNext() {
+                    return iter.hasNext();
+                }
+
+                @Override
+                public Row next() {
+                    return toSparkRow(factory.create(iter.next()));
+                }
+            };
         }
     }
 

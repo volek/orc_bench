@@ -83,9 +83,15 @@ public final class DatasetGenerator {
         result.dryRun = dryRun;
         result.mocked = useMock && !dryRun;
 
+        long compressedBytes = Math.max(1L, (rowCount * APPROX_BYTES_PER_ROW) / ZLIB_RATIO);
+        int fileMib = Math.max(32, cfg.benchmark.physicalBaseline.targetFileSizeMib);
+        int parallelism = (int) Math.min(2000L,
+                Math.max(1L, compressedBytes / (fileMib * 1024L * 1024L)));
+
         System.out.println("[generate] scale=" + scaleKey
                 + " targetGiB=" + scaleSpec.targetLogicalGib
                 + " rows≈" + rowCount
+                + " partitions=" + parallelism
                 + " path=" + basePath
                 + " dryRun=" + dryRun
                 + " mock=" + result.mocked);
@@ -128,11 +134,6 @@ public final class DatasetGenerator {
                 seed, algo, fromMs, toMs, paramKeys, catalog, jsonTemplates);
 
         OrcWriteSettings orc = toWriteSettings(cfg.benchmark.physicalBaseline.orc);
-        int fileMib = Math.max(32, cfg.benchmark.physicalBaseline.targetFileSizeMib);
-        long compressedBytes = Math.max(1L, (rowCount * APPROX_BYTES_PER_ROW) / ZLIB_RATIO);
-        int parallelism = (int) Math.min(2000L,
-                Math.max(1L, compressedBytes / (fileMib * 1024L * 1024L)));
-
         sink.writeRawArray(basePath, rowCount, parallelism, factory, orc);
         sink.writeReferences(refsPath, ds.referenceDatasets, seed, algo);
 

@@ -1,7 +1,7 @@
 # Confirmed facts from cluster output, unknowns preserved as null.
 # spec_version 3 (2026-10-26): SM_UKO actualization. Cluster facts below stay.
-# Spark sizing for NT is archive-query profile common. The previous 10×4×16g
-# sizing is layout_probe only and is not comparable with prod timings.
+# Active submit sizing is the flat spark.executor_* / driver_* block: 10×4×8g,
+# overhead 512m, driver 1×4g. layout_probe (10×4×16g) stays a separate profile.
 environment:
   id: sdp_3_5_4_1_1
   spec_version: 3
@@ -66,16 +66,16 @@ environment:
     master: yarn
     # Submit is cluster-only. Scripts reject deploy_mode=client.
     deploy_mode: cluster
-    # Active NT profile: archive-query `common` (analysis §4.2). Complexity multiplier
-    # ×2/×3 was not applied on prod (complexity field empty) and stays off here.
-    # Idle test cluster fits about 9 such apps on cores (81/9) and about 12 on memory.
+    # Active submit size. Complexity multiplier ×2/×3 was not applied on prod and stays off.
+    # Queue default: 216 GiB / 67 vCores; one container max on this cluster is 46080 MB.
+    # 10×(8 GiB+512 MiB) + driver 4 GiB is about 89 GiB and 41 vCores, inside both limits.
     profile: prod_common
-    executor_instances: 4
-    executor_cores: 2
-    executor_memory_gib: 3
+    executor_instances: 10
+    executor_cores: 4
+    executor_memory_gib: 8
     executor_memory_overhead_mib: 512
     driver_cores: 1
-    driver_memory_gib: 2
+    driver_memory_gib: 4
     memory_fraction: 0.8
     shuffle_partitions: 200
     default_parallelism: 4
@@ -94,12 +94,12 @@ environment:
     # Named profile referenced by benchmark.engine_profiles.SPARK_COMMON.sizing_profile.
     # Numbers match the flat executor_* / driver_* fields above, which spark-submit reads.
     prod_common:
-      executor_instances: 4
-      executor_cores: 2
-      executor_memory_gib: 3
+      executor_instances: 10
+      executor_cores: 4
+      executor_memory_gib: 8
       executor_memory_overhead_mib: 512
       driver_cores: 1
-      driver_memory_gib: 2
+      driver_memory_gib: 4
   hive:
     jdbc_url: jdbc:hive2://omlt-abyss-sdp-namenode-01.opsmon.sbt:2181,omlt-abyss-sdp-namenode-02.opsmon.sbt:2181,omlt-abyss-sdp-srv-01.opsmon.sbt:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2
     metastore_uri: thrift://omlt-abyss-sdp-datanode-03.opsmon.sbt:9083

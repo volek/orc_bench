@@ -700,6 +700,7 @@ spark-submit \
 | `application_<id>` есть, SSH уже закрыт | `yarn application -status application_<id>` и `hdfs dfs -tail` лога драйвера |
 | Долго нет `metrics.jsonl` | Файл создаётся после первой ячейки. Смотрите `driver.log`: `[run] spark …` значит, ячейка ещё считается |
 | `Java heap space` / `TaskResultLost` на `SELECT *` | На узле старый jar: число строк и хеш должны считаться на экзекуторах. Память драйвера профиля common — 2g |
+| Generate обрывается на `rows≈37509381`, в `driver.log` нет `[fatal]` | Задача копила всю партицию (~3,75 млн строк) в список на экзекуторе 3g. Нужен jar, где `RowPartitionMapper` отдаёт строки по одной. Повторный generate — после удаления `S/` |
 | Hive читает колонки не с тех позиций | Файлы записаны прежним порядком. Шаг 3, затем generate заново. Новую DDL на старый каталог не вешают |
 | Materialize сразу `skip (marker)` | Маркер уже есть. Для перезаписи — §3.1 |
 | Generate прошёл, materialize пишет, что нет `RAW_ARRAY_BASE` | `hdfs dfs -ls hdfs://sdp-dzo-lt-omlt/orc_test/S/RAW_ARRAY_BASE` |
