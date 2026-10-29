@@ -24,8 +24,9 @@ class DatasetGeneratorTest {
         long m = DatasetGenerator.estimateRowCount(1024);
         assertTrue(s > 0);
         assertTrue(m > s);
-        // S ≈ 100 GiB / ~1200 B ≈ 89M rows
-        assertTrue(s > 50_000_000L);
+        // 100 GiB / ~7500 B ≈ 14M rows
+        assertTrue(s > 10_000_000L);
+        assertTrue(s < 20_000_000L);
     }
 
     @Test
@@ -63,10 +64,12 @@ class DatasetGeneratorTest {
 
         assertNotNull(row.userLogin);
         assertNotNull(row.tags);
-        assertTrue(row.tags.isEmpty(), "tags must be empty array []");
-        assertEquals(keys.size(), row.paramName.size());
-        assertEquals(keys.size(), row.paramValue.size());
-        assertEquals(keys.size(), row.paramOldValue.size());
+        assertEquals(3, row.tags.size(), "tags are CImodule, namespace, pod");
+        assertEquals(DatasetGenerator.MODULE, row.module);
+        assertEquals(64, row.session.length());
+        assertFalse(row.paramName.isEmpty());
+        assertEquals(row.paramName.size(), row.paramValue.size());
+        assertEquals(row.paramName.size(), row.paramOldValue.size());
         for (String old : row.paramOldValue) {
             assertNull(old, "paramOldValue elements must be null");
         }

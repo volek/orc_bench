@@ -96,6 +96,7 @@ public final class Models {
         public String representation;
         public String bucketKey;
         public String engine;
+        public String status;
     }
 
     public static final class ExecutionBaselines {
@@ -129,6 +130,7 @@ public final class Models {
         public List<Double> workingSetFractions = new ArrayList<>();
         public Map<String, String> sessionOverrides = new LinkedHashMap<>();
         public String onMissing;
+        public String status;
     }
 
     public static final class FinalComparison {

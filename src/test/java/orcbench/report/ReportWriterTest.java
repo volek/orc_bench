@@ -82,6 +82,8 @@ class ReportWriterTest {
     @Test
     void reportPhaseFromFixtureMetricsJsonl() throws Exception {
         LoadedConfig cfg = ConfigLoader.load("conf", null);
+        // Fixture rows are the CP8 query ids. The live rule looks at Q_SESSION_EQ.
+        cfg.benchmark.bestOrcRule.objectiveQueries = Arrays.asList("Q02", "Q03", "Q07_NARROW");
         ExperimentPlan plan = ExperimentExpander.buildPlan(
                 cfg, "S", Arrays.asList("spark", "hive_tez"), null);
 
@@ -106,7 +108,7 @@ class ReportWriterTest {
         assertNotNull(result.bestOrc.experimentId);
         assertFalse(result.bestOrc.variantLabel != null
                 && result.bestOrc.variantLabel.toUpperCase().contains("ZSTD"));
-        assertTrue(result.finalComparisonCells >= 4);
+        assertEquals(1, result.finalComparisonCells);
         assertNotNull(result.outputDir);
         assertTrue(Files.exists(Paths.get(result.outputDir).resolve("SUMMARY.txt")));
         assertTrue(Files.exists(Paths.get(result.outputDir).resolve("final_comparison.tsv")));

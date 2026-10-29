@@ -86,7 +86,8 @@ class PreflightProbeTest {
                 cfg, "S", Arrays.asList("spark", "hive_tez", "hive_llap"), Collections.<String>emptyList());
         PreflightProbe.applySkipToPlan(plan, report, true);
 
-        assertTrue(hasSkip(report, "HIVE_MATERIALIZED_VIEW"));
+        assertTrue(report.notes.stream().anyMatch(n -> n.contains("HIVE_MATERIALIZED_VIEW")));
+        assertTrue(plan.engine.stream().noneMatch(i -> "HIVE_MATERIALIZED_VIEW".equals(i.experimentId)));
         assertTrue(hasSkip(report, "HDFS_CACHE") && report.skippedExperiments.stream()
                 .anyMatch(r -> r[0].contains("centralized")));
         assertTrue(hasSkip(report, "HIVE_LLAP"));

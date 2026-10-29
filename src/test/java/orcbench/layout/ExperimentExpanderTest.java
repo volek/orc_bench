@@ -32,7 +32,7 @@ class ExperimentExpanderTest {
     @Test
     void baselineSettingsCopiedFromPhysicalBaseline() {
         OrcWriteSettings s = ExperimentExpander.baselineSettings(cfg.benchmark.physicalBaseline);
-        assertEquals("SNAPPY", s.compression);
+        assertEquals("ZLIB", s.compression);
         assertEquals(10000, s.rowIndexStride);
         assertNotSame(cfg.benchmark.physicalBaseline.orc.bloomColumns, s.bloomColumns);
     }
@@ -46,9 +46,9 @@ class ExperimentExpanderTest {
         assertTrue(all.size() < 200);
 
         List<ExperimentInstance> filtered = ExperimentExpander.expandPhysical(
-                cfg.benchmark, "S", Collections.singletonList("BLOOM_USER"));
+                cfg.benchmark, "S", Collections.singletonList("BLOOM_SESSION"));
         Set<String> ids = filtered.stream().map(i -> i.experimentId).collect(Collectors.toSet());
-        assertTrue(ids.contains("BLOOM_USER"));
+        assertTrue(ids.contains("BLOOM_SESSION"));
         assertFalse(ids.contains("COMPRESSION"));
         assertFalse(ids.contains("RAW_ARRAY_BASE"));
     }
@@ -78,17 +78,27 @@ class ExperimentExpanderTest {
         assertTrue(engines.stream().anyMatch(i ->
                 "HIVE_VECTORIZATION".equals(i.experimentId)
                         && "true".equals(i.sessionOverrides.get("hive.vectorized.execution.enabled"))));
-        assertTrue(engines.stream().anyMatch(i ->
-                "HIVE_CBO".equals(i.experimentId)
-                        && "false".equals(i.sessionOverrides.get("hive.cbo.enable"))));
+        assertTrue(engines.stream().noneMatch(i -> "HIVE_CBO".equals(i.experimentId)));
+
+        List<ExperimentInstance> asked = ExperimentExpander.expandEngine(
+                cfg.benchmark, "S", "/orc_test/S/RAW_ARRAY_BASE",
+                Collections.singletonList("hive_tez"),
+                Collections.singletonList("HIVE_CBO"));
+        assertEquals(1, asked.size());
+        assertEquals("HIVE_CBO", asked.get(0).experimentId);
+        assertNotNull(asked.get(0).skipReason);
+        assertTrue(asked.get(0).skipReason.contains("excluded"), asked.get(0).skipReason);
+
+        List<ExperimentInstance> bucketing = ExperimentExpander.expandPhysical(
+                cfg.benchmark, "S", Collections.singletonList("BUCKETING"));
+        assertEquals(1, bucketing.size());
+        assertNotNull(bucketing.get(0).skipReason);
+        assertTrue(bucketing.get(0).skipReason.contains("excluded"));
 
         List<ExperimentInstance> finals = ExperimentExpander.finalProfiles(cfg.benchmark, "/orc_test/S/BEST");
         assertEquals(cfg.benchmark.finalComparison.engines.size(), finals.size());
         assertTrue(finals.stream().anyMatch(i ->
-                "HIVE_LLAP_WARM".equals(i.experimentId) && "warm".equals(i.cacheState)));
-        assertTrue(finals.stream().anyMatch(i ->
-                "SPARK_OPTIMIZED".equals(i.experimentId)
-                        && "true".equals(i.sessionOverrides.get("spark.sql.cbo.enabled"))));
+                "SPARK_COMMON".equals(i.experimentId) && "spark".equals(i.engine)));
     }
 
     @Test
@@ -109,13 +119,13 @@ class ExperimentExpanderTest {
         List<Integer> candidates = cfg.benchmark.runs.concurrencyLevels;
 
         ConcurrencySelection s = ExperimentExpander.selectConcurrency(candidates, "S", yarn, spark);
-        assertEquals(Arrays.asList(1, 5), s.levels);
+        assertEquals(Arrays.asList(1, 5, 9), s.levels);
 
         ConcurrencySelection m = ExperimentExpander.selectConcurrency(candidates, "M", yarn, spark);
-        assertEquals(Arrays.asList(1, 5), m.levels);
+        assertEquals(Arrays.asList(1, 5, 9), m.levels);
 
         ConcurrencySelection l = ExperimentExpander.selectConcurrency(candidates, "L", yarn, spark);
-        assertEquals(Collections.singletonList(1), l.levels);
+        assertEquals(Arrays.asList(1, 5), l.levels);
     }
 
     @Test
@@ -141,7 +151,7 @@ class ExperimentExpanderTest {
         assertFalse(plan.physical.isEmpty());
         assertFalse(plan.engine.isEmpty());
         assertFalse(plan.finalComparison.isEmpty());
-        assertEquals(Arrays.asList(1, 5), plan.concurrencySelected);
+        assertEquals(Arrays.asList(1, 5, 9), plan.concurrencySelected);
         assertTrue(plan.engine.stream().noneMatch(i -> i.llap),
                 "hive_llap not requested → no LLAP cells");
 

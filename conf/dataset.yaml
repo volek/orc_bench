@@ -1,20 +1,57 @@
-# Project-specific synthetic data generator specification, not ORC native config.
-# spec_version 2 (2026-10-16): stage-2 decisions 2.3, 2.9, 2.10, 2.11 approved by stakeholders.
+# Synthetic generator contract for index CI02001608_CI00982781_SM_UKO.
+# spec_version 3 (2026-10-26), source: docs/анализ_индекса_SM_UKO.docx (state 2026-10-21).
+# Personal data stays synthetic. Cardinalities below are per median new-era hour
+# (key=2026-06-28--09, 19.16e6 rows) unless a field says otherwise.
 dataset:
-  id: audit_events
-  spec_version: 2
+  id: audit_events_sm_uko
+  spec_version: 3
   canonical_schema_file: schema.orc.txt
-  type_validation_status: verified_from_sample_orc_footer
+  type_validation_status: index_inventory_2026-10-21_plus_sample_footer
   prohibited_data: real_personal_data
   canonical_representation: RAW_ARRAY
   preserve_original_physical_schema: true
   baseline_is_original_orc_schema: true
+  schema_column_order: >
+    Sample footer order is kept. id, sourceSystem, metamodelHash, nodeId and requestId
+    are appended. Section 2.1 of the analysis groups createdAt with __time and is a
+    description, not a re-read ORC footer.
+  index:
+    name: CI02001608_CI00982781_SM_UKO
+    module: CI00982781_SM_UKO
+    source_system: CI02001608
+    analysis_as_of: '2026-10-21'
+    data_from: '2024-03-11T16:00:00Z'
+    data_to: '2026-10-21T09:00:00Z'
+    partitions: 22845
+    partition_key: key
+    partition_key_format: yyyy-MM-dd--HH
+    orc_files: 157917
   source_sample_metadata:
+    status: superseded_by_index_profile
     rows: 799160
     compression: SNAPPY
     row_index_stride: 10000
     orc_format_version: '0.12'
     metadata_not_runtime_library_version: true
+  index_profile:
+    studied_partition: key=2026-06-28--09
+    era_of_studied_partition: new
+    rows: 19160061
+    compressed_gb: 5.34
+    uncompressed_gb: 144
+    bytes_per_row_compressed: 280
+    json_row_bytes_median: 1900
+    json_row_bytes_typical: [1700, 2200]
+    json_row_bytes_max: 2500
+    compression: ZLIB
+    compression_ratio: 27
+    files: 7
+    file_layout: six files ~0.89 GB (~3.2e6 rows, 10 minutes) plus a 31 MB tail
+    rows_ordered_by: __time
+    stripes_per_file: 100
+    rows_per_stripe: 31000
+    compressed_stripe_mb: 8.4
+    stripe_note: 8.4 MB is the ZLIB size. Uncompressed stripe target stays 64 MiB (~31k rows × ~1.9 KB).
   derived_representations:
   - PAIRS
   - MAP
@@ -22,23 +59,43 @@ dataset:
   - HYBRID
   original_arrays_immutable: true
   size_method:
-    definition: logical GiB = sum of uncompressed serialized row bytes per schema.orc.txt
+    definition: logical GiB = uncompressed serialized row bytes; compressed GB = logical / 27 at ZLIB
     tolerance: ±5%
     calibration: measured on pilot S run
+    disk_budget_with_replicas_tib: 3
+    disk_budget_note: one L layout at replication 2 is about 2.3 TiB and is the only layout that fits
   null_semantics:
-    tags: empty array [] (not null)
-    paramOldValue: array of NULL elements (not empty string)
+    tags: array of 3 elements, never null and never empty
+    paramOldValue: array of NULL elements (not empty string), one element per paramName
+    userName: empty string; null when name is MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
+    requestId: null
+    nodeId: empty string; filled only for MONITORING
+    userLogin_monitoring: empty string
     validator: check_null_handling expects exactly these encodings
   scales:
     S:
-      target_logical_gib: 100
+      purpose: one old-era hour, mechanism and layout experiments
+      era: old
+      hourly_partitions: 1
+      target_compressed_gb: 9.7
+      target_logical_gib: 262
+      hour_key: '2025-04-14--12'
     M:
-      target_logical_gib: 500
+      purpose: one old-era day
+      era: old
+      hourly_partitions: 24
+      target_compressed_gb: 233
+      target_logical_gib: 6291
     L:
-      target_logical_gib: 1024
+      purpose: typical query window, 120 hourly partitions (5 days)
+      era: old
+      hourly_partitions: 120
+      target_compressed_gb: 1165
+      target_logical_gib: 31455
+      note: 5 × 233 GB. The analysis rounds this window to ≈1.17 TB. Materialize one layout at a time.
   generation:
     seed: 123456789
-    algorithm_version: audit_synth_v1
+    algorithm_version: audit_synth_v2
     deterministic_by:
     - seed
     - row_id
@@ -47,218 +104,386 @@ dataset:
     batch_rows: 1024
     base_time_zone: UTC
     timestamp_range:
-      from: '2026-01-01T00:00:00Z'
-      to_exclusive: '2026-02-01T00:00:00Z'
+      profile: synthetic_old_era_slice
+      note: median query depth is 545 days back into spring 2025, where hours are ~2.4× the new era. This slice stands in for that era; it is not the full 2024-03-11..2026-10-21 history.
+      from: '2025-04-14T00:00:00Z'
+      to_exclusive: '2025-04-19T00:00:00Z'
+    scale_window:
+      S: hour 2025-04-14--12 sized to the old-era average hour (9.7 GB), not the diurnal peak
+      M: 2025-04-14, hours follow hour_size_profile, sum 233 GB
+      L: full timestamp_range, each day sums to 233 GB
+    hour_size_profile:
+      era: old
+      median_compressed_gb: 9.7
+      peak_hours_08_11_compressed_gb: 15
+      night_hours_22_00_compressed_gb: 1.75
+      within_day_ratio: 5-8
+    new_era_reference:
+      daily_median_compressed_gb: 99
+      daily_typical_compressed_gb: [79, 114]
+      hour_average_compressed_gb: 4.1
+      hour_median_compressed_gb: 5.34
+      peak_hours_08_11_compressed_gb: 6.8
+      night_hours_22_00_compressed_gb: [0.7, 0.9]
+      note: recorded for comparison. Generation uses the old era, which is what typical queries read.
     source_materialization: once_per_scale
     row_count: null
     strict_cardinality: true
     null_profile: declared_exceptions_only (see dataset.null_semantics)
     parallel_array_alignment: positionally_matched
     timezone_assumption_requires_validation: true
+  session_model:
+    note: a client login is a triple that shares session. FIND and LOGON also share EPK_ID. Events of one triple fall within a few seconds. A session lookup must hit 3-8 rows.
+    typical_events_per_session: 3
+    p90_events_per_session: 4
+    max_events_per_session: 1399
+    epk_events_per_hour_typical: 2
+    epk_events_p90: 4
+    epk_events_max_per_hour: 72
+    steps:
+    - order: 1
+      name: SYSTEM_EVENTS_FIND
+      user_login: technical_constant
+      epk_id: present
+      session_id_param: present
+    - order: 2
+      name: SYSTEM_EVENTS_LOGON
+      user_login: client_numeric_same_as_step_3
+      epk_id: same_as_step_1
+      session_id_param: present
+    - order: 3
+      name: SYSTEM_EVENTS_CREATE_SESSION_WITH_CONFIGURATION_RESPONSE
+      user_login: client_numeric
+      epk_id: absent
+      session_id_param: absent
+    residual_events: the six rarer name values, plus the small count gap between the three triple members, are separate rows and keep the published name weights
   columns:
+    id:
+      generator: uuid_deterministic
+      cardinality: unique_per_row
+      length: 36
     userLogin:
-      generator: prefixed_id
-      prefix: userLogin
-      cardinality: 1000000
+      generator: mixed
+      max_length: 16
+      cardinality_per_median_hour: 4850000
+      client_numeric_row_share: 0.69
+      technical_login:
+        scope: all SYSTEM_EVENTS_FIND rows
+        cardinality: 1
+        alphabet: letters
+        value: synthetic constant, not a real login
+      empty_scope: MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
     createdAt:
       generator: timestamp_uniform
+      resolution: millisecond
+      distinct_per_median_hour: 3400000
     session:
-      generator: session_id
-      prefix: copy2_
-      cardinality: 5000000
+      generator: hex_fixed_length
+      length: 64
+      cardinality_per_median_hour: 6600000
+      events_per_session_typical: 3
     userNode:
-      generator: dictionary
-      prefix: userNode
-      cardinality: 1000
+      generator: documentation_ip_v4
+      max_length: 15
+      cardinality_per_median_hour: 1750000
+      skew: 20 synthetic hot addresses cover the same row share as the 20 busiest prod addresses (about 14-56 thousand events each). Do not copy the real 30.72/30.73 literals.
     module:
-      generator: dictionary
-      prefix: module_
-      cardinality: 500
+      generator: constant
+      value: CI00982781_SM_UKO
+      cardinality: 1
+      length: 17
     name:
       generator: weighted_dictionary
+      weight_basis: row counts in the median hour, normalize to 1
       values:
-      - LOGON
-      - LOGOFF
-      - ACTION
+      - SYSTEM_EVENTS_CREATE_SESSION_WITH_CONFIGURATION_RESPONSE
+      - SYSTEM_EVENTS_FIND
+      - SYSTEM_EVENTS_LOGON
+      - SYSTEM_EVENTS_CREATE_SESSION_RESPONSE
+      - SYSTEM_EVENTS_GET_EXTENDED_PERMISSIONS_MOBILE_RESPONSE
+      - SYSTEM_EVENTS_FORCE_MS_NOTIFICATION_RESPONSE
+      - MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
+      - SYSTEM_EVENTS_SEND_OPERATION_DATA_SBERKIDS_GUEST
+      - SYSTEM_EVENTS_GET_CONFIGURATION_WEBVIEW_RESPONSE
       weights:
-      - 0.6
-      - 0.25
-      - 0.15
+      - 6037221
+      - 5943387
+      - 5943317
+      - 811676
+      - 371027
+      - 27659
+      - 22807
+      - 1573
+      - 394
+      params_per_event:
+        SYSTEM_EVENTS_CREATE_SESSION_WITH_CONFIGURATION_RESPONSE: [19, 26]
+        SYSTEM_EVENTS_FIND: [28, 33]
+        SYSTEM_EVENTS_LOGON: [32, 40]
+        SYSTEM_EVENTS_CREATE_SESSION_RESPONSE: 19
+        SYSTEM_EVENTS_GET_EXTENDED_PERMISSIONS_MOBILE_RESPONSE: 17
+        SYSTEM_EVENTS_FORCE_MS_NOTIFICATION_RESPONSE: 18
+        MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP: 11
+        SYSTEM_EVENTS_SEND_OPERATION_DATA_SBERKIDS_GUEST: 21
+        SYSTEM_EVENTS_GET_CONFIGURATION_WEBVIEW_RESPONSE: 17
     userName:
-      generator: correlated_prefixed_id
-      correlated_with: userLogin
-      prefix: userName
+      generator: empty_string
+      null_when_name: MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
+    sourceSystem:
+      generator: constant
+      value: CI02001608
+      cardinality: 1
+      length: 10
     metamodelVersion:
-      generator: dictionary
-      prefix: metamodelVersion
-      cardinality: 1000
+      generator: weighted_dictionary
+      length: 64
+      cardinality: 2
+      values:
+      - synthetic_hex_64_a
+      - synthetic_hex_64_b
+      weights_note: two synthetic 64-char values, shares 0.856 and 0.144. Real hashes are not copied.
+      weights:
+      - 0.856
+      - 0.144
+    metamodelHash:
+      generator: paired_with
+      source: metamodelVersion
+      length: 64
+      cardinality: 2
+    nodeId:
+      generator: empty_string
+      filled_when_name: MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
+      cardinality_when_filled: 1181
+      max_length: 25
+    requestId:
+      generator: always_null
     tags:
-      generator: empty_array
+      generator: fixed_length_array
+      length: 3
       element_type: string
+      elements:
+      - key: audit.CImodule
+        generator: constant
+      - key: audit.namespace
+        cardinality: 8
+      - key: audit.pod
+        cardinality: 1250
+        rows_per_value: 20000
     paramOldValue:
       generator: null_array
       element_type: string
-      note: sample CSV empty; null/empty semantics require row-level validation
+      aligned_with: paramName
     archiveInternalId:
       generator: uuid_deterministic
+      cardinality: unique_per_row
+      length: 36
     archiveInsertTime:
       generator: derived_timestamp
       source: createdAt
       offset_seconds:
       - 0
-      - 120
+      - 2
     __time:
       generator: copy_timestamp
       source: createdAt
+      note: equal to createdAt on every row
   parameters:
     internal_representation: ordered_name_value_pairs
     order_profiles:
-    - fixed
-    - shuffled
-    default_order_profile: fixed
+    - epk_id_at_1based_position_7_to_9
+    default_order_profile: epk_id_at_1based_position_7_to_9
     duplicate_names: forbidden_in_baseline
     missing_keys_profile: none_in_baseline
+    distinct_names_in_index: 53
+    catalog_coverage: 30 names itemized in the analysis (17 ufs + 13 business). The other 23 are unnamed fillers.
     catalog:
-      OPERATION_UID:
+      ufs.auditContextUUID:
         generator: uuid_deterministic
-        cardinality: high
-      TYPE:
-        generator: copy_column
-        column: name
+        presence: 1.0
+        cardinality: unique_per_row
+        length: 36
+        family: ufs
+      ufs.employeeLogin:
+        generator: always_null
+        presence: 1.0
+        family: ufs
+      ufs.orgUid:
+        generator: always_null
+        presence: 1.0
+        family: ufs
+      ufs.serverLocation:
+        generator: always_null
+        presence: 1.0
+        family: ufs
+      EPK_ID:
+        generator: numeric_string
+        length: 19
+        presence: 0.62
+        present_when_name:
+        - SYSTEM_EVENTS_FIND
+        - SYSTEM_EVENTS_LOGON
+        position_1based: [7, 9]
+        cardinality_per_median_hour: 4870000
       SESSION_ID:
         generator: copy_column
         column: session
-      VSP_CODE:
-        generator: dictionary
-        cardinality: 1000
-        prefix: vsp_code_
-      OSB_CODE:
-        generator: dictionary
-        cardinality: 500
-        prefix: osb_code_
-      TB_CODE:
-        generator: dictionary
-        cardinality: 1000
-        prefix: tb_code_
-      EPK_ID:
-        generator: prefixed_id
-        prefix: epk_
-        cardinality: 1000000
-      IP_ADDRESS:
-        generator: documentation_ip_v4
+        presence: 0.62
+        present_when_name:
+        - SYSTEM_EVENTS_FIND
+        - SYSTEM_EVENTS_LOGON
+        length: 64
+        cardinality_per_median_hour: 5780000
+      OPERATION_UID:
+        generator: uuid_deterministic
+        presence: 0.62
+        length: [32, 36]
+        cardinality_per_median_hour: 5930000
       CARD_NUMBER:
         generator: fake_token
         prefix: card_token_
-        cardinality: 1000000
-      CHANNEL_TYPE:
-        generator: dictionary
-        cardinality: 20
-        prefix: channel_type_
-      USER_APP_VERSION:
-        generator: dictionary
-        cardinality: 50
-        prefix: app_version_
-      DEVICE_NAME:
-        generator: dictionary
-        cardinality: 5000
-        prefix: device_name_
+        presence: 0.62
+        length: [16, 18]
+        cardinality_per_median_hour: 4820000
+      IP_ADDRESS:
+        generator: documentation_ip_v4
+        presence: 0.62
+        length: [8, 15]
+        cardinality_per_median_hour: 1730000
+      PERSON_DOCUMENT_NUMBER:
+        generator: fake_token
+        prefix: doc_token_
+        presence: 0.625
+        length: [3, 21]
+        cardinality_per_median_hour: 1230000
+        note: analysis also mentions FIO, birth date and document series without parameter names. Do not invent those names.
       DEVICE_ID:
         generator: prefixed_id
         prefix: device_id_
-        cardinality: 1000000
-      CONFIRM_LOG:
-        generator: dictionary
-        cardinality: 20
-        prefix: confirm_
-      MOBILE_SDK_DATA:
-        generator: json_template
-        template: mobile_sdk_v1
-      DEVICE_MODEL:
-        generator: dictionary
-        cardinality: 100
-        prefix: device_model_
+        presence: 0.605
+        length: [25, 44]
+        cardinality_per_median_hour: 5290000
       DEVICE_INFO:
         generator: dictionary
-        cardinality: 1000
-        prefix: device_info_
-      FCP_CLIENT_ID:
-        generator: prefixed_id
-        prefix: client_
-        cardinality: 1000000
-      ORIGIN_UFS_BLOCK_ID:
+        presence: 0.61
+        length: [6, 436]
+        cardinality_per_median_hour: 6840
+      USER_APP_VERSION:
         generator: dictionary
-        cardinality: 1000
-        prefix: ufs_
+        presence: 0.604
+        length: [5, 24]
+        cardinality: 146
+      AUTH_TOKEN:
+        generator: fake_token
+        prefix: auth_token_
+        presence: 0.357
+        length: [32, 514]
+        cardinality_per_median_hour: 7080000
+      TB_CODE:
+        generator: dictionary
+        presence: 0.307
+        length: [1, 5]
+        cardinality: 12
+      OSB_CODE:
+        generator: dictionary
+        presence: 0.307
+        length: [1, 5]
+        cardinality: 300
+      VSP_CODE:
+        generator: dictionary
+        presence: 0.307
+        length: [1, 5]
+        cardinality: 2270
+    ufs_family:
+      count: 17
+      presence: 1.0
+      includes: ufs.auditContextUUID, ufs.employeeLogin, ufs.orgUid, ufs.serverLocation
+      remaining_count: 13
+      remaining_generator: dictionary
+      remaining_cardinality: [1, 9]
+      remaining_length: [1, 22]
+      note: the analysis does not name the other 13 ufs keys. Use synthetic names ufs.synthetic_01..ufs.synthetic_13.
+    unnamed_fillers:
+      count: 23
+      name_pattern: UNNAMED_%02d
+      generator: dictionary
+      cardinality: 10
+      note: present only as needed so a row reaches its keys_per_row. These are not real index names.
+    absent_from_index:
+    - STAFF_LOGIN
+    - STAFF_NUMBER
+    - CLIENT_ID
+    - CLIENT_TB
+    - CLIENT_IP_ADDRESS
+    - EMPLOYEE_IP_ADDRESS
+    - ARM_IP
+    dropped_from_previous_contract:
+    - TYPE
+    - CHANNEL_TYPE
+    - DEVICE_NAME
+    - CONFIRM_LOG
+    - MOBILE_SDK_DATA
+    - DEVICE_MODEL
+    - FCP_CLIENT_ID
+    - ORIGIN_UFS_BLOCK_ID
     storage_representation: native_orc_array_string
     raw_physical_columns:
     - paramName
     - paramValue
     preserve_parallel_array_indices: true
+    value_length:
+      sum_per_row_median_chars: 400
+      sum_per_row_max_chars: 800
+      share_of_values_longer_than_100_chars: 0.0008
+      long_value_carriers:
+      - AUTH_TOKEN
+      - DEVICE_INFO
     per_row_profile:
-      source: default_no_sample; replace with measurements when source_reference sample arrives
-      keys_per_row: 8 +/- 3, deterministic by seed
-      always_present:
-      - TYPE
-      - SESSION_ID
-      EPK_ID_presence: '>=0.8'
-      MOBILE_SDK_DATA_presence: ~0.3
-  json_templates:
-    mobile_sdk_v1:
-      DeviceSystemName:
-        generator: enum
-        values:
-        - iOS
-        - Android
-      DeviceSystemVersion:
-        generator: enum
-        values:
-        - '18'
-        - '19'
-        - '20'
-      Languages:
-        generator: enum
-        values:
-        - ru_RU
-        - en_US
-      HardwareID:
-        generator: fake_token
-        prefix: hardware_
-      ApplicationMD5:
-        generator: hex_string
-        length: 32
-      BootId:
-        generator: uuid_deterministic
+      source: median partition key=2026-06-28--09
+      distinct_names: 50
+      keys_per_row: 17-40, mean 31, further bounded by params_per_event of name
+      always_present_family: ufs
+      EPK_ID_presence: 0.62
+      SESSION_ID_presence: 0.62
+      MOBILE_SDK_DATA_presence: 0
   reference_datasets:
     module_dictionary:
-      enabled: true
+      enabled: false
+      reason: module is the constant CI00982781_SM_UKO, so a join on module prunes nothing
       join_key: module
       columns:
       - id
       - type
-      row_count: 500
+      row_count: 1
     epk_dictionary:
-      enabled: true
+      enabled: false
+      reason: prod filters EPK_ID from an external file, not by joining a dictionary
       join_key: EPK_ID
       columns:
       - id
       - type
-      row_count: 100000
+      row_count: 0
     partition_dates:
-      enabled: true
+      enabled: false
+      reason: the service picks hourly partitions outside SQL; there is no date-dimension join
       columns:
       - event_date
       - category
-      category_cardinality: 5
+      category_cardinality: 0
+    epk_id_file:
+      enabled: true
+      distinct_ids: 10800
+      approx_kib: 216
+      binding: epk_id_list
+      values: synthetic EPK_ID values drawn from the generated column
   query_samples:
     keys:
-    - userLogin
     - session
     - EPK_ID
-    - SESSION_ID
-    - IP_ADDRESS
-    - DeviceSystemName
-    - type_value
-    - date_category
+    - userLogin
+    - userNode
+    - name
+    - OPERATION_UID
+    - fulltext_pattern
+    - absent_param
     selection: deterministic_from_materialized_dataset
     cases:
     - present
@@ -266,32 +491,42 @@ dataset:
     - selective
     - common
     values_per_case: 50
+    hit_targets:
+      session_present: 3-8 rows
+      epk_present: 0-25 rows over the query window
+      user_node_or_login: 8-73 rows
+      other_param: 0-3 rows
+      fulltext_selective: 0-42 rows
+      fulltext_heavy_template: 260000 rows
+      module_name_epk_file: 350000-6500000 rows
+      absent_param: 0
+      unfiltered_9d: 2300000 rows
     partition_columns_derived:
-      event_date: DATE(__time)
-      event_hour: HOUR(__time)
+      key: date_format(__time, 'yyyy-MM-dd--HH')
     placeholder_mapping:
-      user_login: userLogin
       session_id_outer: session
-      nested_session_id: SESSION_ID
       epk_id: EPK_ID
-      ip_address: IP_ADDRESS
-      device_system_name: DeviceSystemName
-      type_value: type_value
-      date_category: date_category
+      event_name: name
+      user_login: userLogin
+      user_node: userNode
+      module_value: constant CI00982781_SM_UKO
+      operation_uid: OPERATION_UID
+      fulltext_pattern: fulltext_pattern
+      absent_param_value: absent_param
+      epk_id_list: epk_id_file expanded and quoted by the runner
       table_placeholders: bound in benchmark.yaml hive_registration.placeholder_binding
-      user_login_a: userLogin present-case value 1 (three distinct)
-      user_login_b: userLogin present-case value 2 (three distinct)
-      user_login_c: userLogin present-case value 3 (three distinct)
     selectivity_thresholds:
       selective: <0.1% of rows
       common: '>10% of rows'
-    user_login_a_b_c: three distinct values of the present case
   validation:
     check_row_count: true
     check_name_value_alignment: true
     check_duplicate_names: true
     check_canonical_row_hash: true
-    check_json_parseable: true
+    check_json_parseable: false
     check_null_handling: true
     fail_on_violation: true
     check_nested_types: true
+    check_session_triple: true
+    check_epk_only_on_find_and_logon: true
+    check_tags_length_3: true

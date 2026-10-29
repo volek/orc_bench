@@ -27,8 +27,12 @@ import java.util.Map;
  */
 public final class DatasetGenerator {
 
-    /** Approximate uncompressed serialized row size for scale→rowCount estimation. */
-    static final long APPROX_BYTES_PER_ROW = 1200L;
+    /**
+     * Uncompressed bytes per row for the SM_UKO profile (~1.9 KB JSON, ~7.5 KB ORC).
+     * Scale targets in dataset.yaml are logical GiB; ZLIB is about 27×.
+     */
+    static final long APPROX_BYTES_PER_ROW = 7500L;
+    static final int ZLIB_RATIO = 27;
 
     private DatasetGenerator() {}
 
@@ -124,8 +128,10 @@ public final class DatasetGenerator {
                 seed, algo, fromMs, toMs, paramKeys, catalog, jsonTemplates);
 
         OrcWriteSettings orc = toWriteSettings(cfg.benchmark.physicalBaseline.orc);
-        int batch = Math.max(1, ds.generation.batchRows);
-        int parallelism = Math.max(1, (int) Math.min(2000L, rowCount / Math.max(1L, batch * 64L)));
+        int fileMib = Math.max(32, cfg.benchmark.physicalBaseline.targetFileSizeMib);
+        long compressedBytes = Math.max(1L, (rowCount * APPROX_BYTES_PER_ROW) / ZLIB_RATIO);
+        int parallelism = (int) Math.min(2000L,
+                Math.max(1L, compressedBytes / (fileMib * 1024L * 1024L)));
 
         sink.writeRawArray(basePath, rowCount, parallelism, factory, orc);
         sink.writeReferences(refsPath, ds.referenceDatasets, seed, algo);
@@ -195,6 +201,13 @@ public final class DatasetGenerator {
         }
     }
 
+    static final String NAME_FIND = "SYSTEM_EVENTS_FIND";
+    static final String NAME_LOGON = "SYSTEM_EVENTS_LOGON";
+    static final String NAME_CREATE = "SYSTEM_EVENTS_CREATE_SESSION_WITH_CONFIGURATION_RESPONSE";
+    static final String NAME_MONITORING = "MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP";
+    static final String MODULE = "CI00982781_SM_UKO";
+    static final String SOURCE_SYSTEM = "CI02001608";
+
     public static EventRow buildEventRow(
             long rowId,
             long seed,
@@ -204,39 +217,192 @@ public final class DatasetGenerator {
             List<String> paramKeys,
             Map<String, ColumnGenerator> catalog,
             Map<String, Map<String, Object>> jsonTemplates) {
-        String userLogin = SynthGenerators.prefixedId(seed, rowId, "userLogin", algo, "userLogin", 1_000_000L);
+        long group = rowId / 3L;
+        int slot = (int) (rowId % 3L);
+        boolean residual = SynthGenerators.bounded(seed, group, "residual", algo, 1000L) < 65L;
+        String name = residual
+                ? rareName(seed, rowId, algo)
+                : (slot == 0 ? NAME_FIND : slot == 1 ? NAME_LOGON : NAME_CREATE);
+        String session = SynthGenerators.hexString(
+                seed, residual ? rowId : group, "session", algo, 64);
+        String userLogin;
+        if (NAME_FIND.equals(name)) {
+            userLogin = "tech_find";
+        } else if (NAME_MONITORING.equals(name)) {
+            userLogin = "";
+        } else {
+            userLogin = String.format(Locale.ROOT, "%016d",
+                    SynthGenerators.bounded(seed, group, "userLogin", algo, 10_000_000_000_000_000L));
+        }
         long createdAtMs = SynthGenerators.timestampUniform(seed, rowId, "createdAt", algo, fromMs, toMs);
-        String session = SynthGenerators.prefixedId(seed, rowId, "session", algo, "copy2_", 5_000_000L);
-        String userNode = SynthGenerators.dictionary(seed, rowId, "userNode", algo, "userNode", 1000L);
-        String module = SynthGenerators.dictionary(seed, rowId, "module", algo, "module_", 500L);
-        String name = SynthGenerators.weightedPick(seed, rowId, "name", algo,
-                java.util.Arrays.asList("LOGON", "LOGOFF", "ACTION"),
-                java.util.Arrays.asList(0.6, 0.25, 0.15));
-        String userName = SynthGenerators.prefixedId(seed, rowId, "userName", algo, "userName", 1_000_000L);
-        String metamodelVersion = SynthGenerators.dictionary(
-                seed, rowId, "metamodelVersion", algo, "metamodelVersion", 1000L);
+        String userNode = SynthGenerators.documentationIpv4(seed, rowId, "userNode", algo);
+        boolean metaA = SynthGenerators.bounded(seed, rowId, "metamodel", algo, 1000L) < 856L;
+        String metamodelVersion = SynthGenerators.hexString(
+                seed, metaA ? 0L : 1L, "metamodelVersion", algo, 64);
+        String metamodelHash = SynthGenerators.hexString(
+                seed, metaA ? 0L : 1L, "metamodelHash", algo, 64);
+        String userName = NAME_MONITORING.equals(name) ? null : "";
+        String nodeId = NAME_MONITORING.equals(name)
+                ? SynthGenerators.prefixedId(seed, rowId, "nodeId", algo, "node_", 1181L)
+                : null;
+
+        List<String> tags = new ArrayList<>();
+        tags.add("audit.CImodule");
+        tags.add("ns_" + SynthGenerators.bounded(seed, rowId, "namespace", algo, 8L));
+        tags.add("pod_" + SynthGenerators.bounded(seed, rowId, "pod", algo, 1250L));
 
         List<String> names = new ArrayList<>();
         List<String> values = new ArrayList<>();
         List<String> oldValues = new ArrayList<>();
-        for (String key : paramKeys) {
-            names.add(key);
-            values.add(generateParam(catalog.get(key), seed, rowId, key, algo, name, session, jsonTemplates));
-            // null_semantics.paramOldValue: array of NULL elements (aligned)
-            oldValues.add(null);
-        }
+        fillParams(names, values, oldValues, name, slot, seed, rowId, group, algo, session,
+                catalog, jsonTemplates);
 
         String archiveId = SynthGenerators.uuidDeterministic(seed, rowId, "archiveInternalId", algo);
-        int offset = SynthGenerators.bounded(seed, rowId, "archiveInsertTime", algo, 2L) == 0 ? 0 : 120;
+        String id = SynthGenerators.uuidDeterministic(seed, rowId, "id", algo);
+        int offset = (int) SynthGenerators.bounded(seed, rowId, "archiveInsertTime", algo, 3L);
         long archiveInsertMs = createdAtMs + offset * 1000L;
 
         return new EventRow(
-                userLogin, createdAtMs, session, userNode, module, name, userName, metamodelVersion,
-                Collections.<String>emptyList(), // tags: empty array, not null
-                oldValues,
-                names,
-                values,
-                archiveId, archiveInsertMs, createdAtMs);
+                userLogin, createdAtMs, session, userNode, MODULE, name, userName, metamodelVersion,
+                tags, oldValues, names, values,
+                archiveId, archiveInsertMs, createdAtMs,
+                id, SOURCE_SYSTEM, metamodelHash, nodeId, null);
+    }
+
+    private static String rareName(long seed, long rowId, String algo) {
+        return SynthGenerators.weightedPick(seed, rowId, "rareName", algo,
+                java.util.Arrays.asList(
+                        "SYSTEM_EVENTS_CREATE_SESSION_RESPONSE",
+                        "SYSTEM_EVENTS_GET_EXTENDED_PERMISSIONS_MOBILE_RESPONSE",
+                        "SYSTEM_EVENTS_FORCE_MS_NOTIFICATION_RESPONSE",
+                        NAME_MONITORING,
+                        "SYSTEM_EVENTS_SEND_OPERATION_DATA_SBERKIDS_GUEST",
+                        "SYSTEM_EVENTS_GET_CONFIGURATION_WEBVIEW_RESPONSE"),
+                java.util.Arrays.asList(811676.0, 371027.0, 27659.0, 22807.0, 1573.0, 394.0));
+    }
+
+    private static int paramTarget(String name, long seed, long rowId, String algo) {
+        if (NAME_CREATE.equals(name)) {
+            return 19 + (int) SynthGenerators.bounded(seed, rowId, "paramSpan", algo, 8L);
+        }
+        if (NAME_FIND.equals(name)) {
+            return 28 + (int) SynthGenerators.bounded(seed, rowId, "paramSpan", algo, 6L);
+        }
+        if (NAME_LOGON.equals(name)) {
+            return 32 + (int) SynthGenerators.bounded(seed, rowId, "paramSpan", algo, 9L);
+        }
+        if ("SYSTEM_EVENTS_CREATE_SESSION_RESPONSE".equals(name)) {
+            return 19;
+        }
+        if ("SYSTEM_EVENTS_GET_EXTENDED_PERMISSIONS_MOBILE_RESPONSE".equals(name)
+                || "SYSTEM_EVENTS_GET_CONFIGURATION_WEBVIEW_RESPONSE".equals(name)) {
+            return 17;
+        }
+        if ("SYSTEM_EVENTS_FORCE_MS_NOTIFICATION_RESPONSE".equals(name)) {
+            return 18;
+        }
+        if (NAME_MONITORING.equals(name)) {
+            return 11;
+        }
+        if ("SYSTEM_EVENTS_SEND_OPERATION_DATA_SBERKIDS_GUEST".equals(name)) {
+            return 21;
+        }
+        return 17;
+    }
+
+    private static void fillParams(
+            List<String> names,
+            List<String> values,
+            List<String> oldValues,
+            String eventName,
+            int slot,
+            long seed,
+            long rowId,
+            long group,
+            String algo,
+            String session,
+            Map<String, ColumnGenerator> catalog,
+            Map<String, Map<String, Object>> jsonTemplates) {
+        boolean client = NAME_FIND.equals(eventName) || NAME_LOGON.equals(eventName);
+        List<String> keys = new ArrayList<>();
+        if (!NAME_MONITORING.equals(eventName)) {
+            keys.add("ufs.auditContextUUID");
+            keys.add("ufs.employeeLogin");
+            keys.add("ufs.orgUid");
+            keys.add("ufs.serverLocation");
+            for (int i = 1; i <= 13; i++) {
+                keys.add(String.format(Locale.ROOT, "ufs.synthetic_%02d", i));
+            }
+        }
+        if (client) {
+            keys.add("EPK_ID");
+            keys.add("SESSION_ID");
+            keys.add("OPERATION_UID");
+            keys.add("CARD_NUMBER");
+            keys.add("IP_ADDRESS");
+            keys.add("PERSON_DOCUMENT_NUMBER");
+            keys.add("DEVICE_ID");
+            keys.add("DEVICE_INFO");
+            keys.add("USER_APP_VERSION");
+        }
+        if (SynthGenerators.bounded(seed, rowId, "auth", algo, 1000L) < 357L) {
+            keys.add("AUTH_TOKEN");
+        }
+        if (SynthGenerators.bounded(seed, rowId, "codes", algo, 1000L) < 307L) {
+            keys.add("TB_CODE");
+            keys.add("OSB_CODE");
+            keys.add("VSP_CODE");
+        }
+        int target = paramTarget(eventName, seed, rowId, algo);
+        int filler = 1;
+        while (keys.size() < target && filler <= 23) {
+            keys.add(String.format(Locale.ROOT, "UNNAMED_%02d", filler));
+            filler++;
+        }
+        while (keys.size() > target) {
+            String last = keys.get(keys.size() - 1);
+            if (last.startsWith("UNNAMED_") || "AUTH_TOKEN".equals(last)
+                    || "TB_CODE".equals(last) || "OSB_CODE".equals(last) || "VSP_CODE".equals(last)) {
+                keys.remove(keys.size() - 1);
+            } else {
+                break;
+            }
+        }
+        if (client) {
+            keys.remove("EPK_ID");
+            int at = Math.min(6 + (slot % 3), keys.size());
+            keys.add(at, "EPK_ID");
+        }
+        for (String key : keys) {
+            names.add(key);
+            values.add(paramValue(key, catalog, seed, rowId, group, algo, eventName, session, jsonTemplates));
+            oldValues.add(null);
+        }
+    }
+
+    private static String paramValue(
+            String key,
+            Map<String, ColumnGenerator> catalog,
+            long seed,
+            long rowId,
+            long group,
+            String algo,
+            String eventName,
+            String session,
+            Map<String, Map<String, Object>> jsonTemplates) {
+        if (key.startsWith("ufs.synthetic_")) {
+            return SynthGenerators.dictionary(seed, rowId, key, algo, "ufs_", 9L);
+        }
+        if (key.startsWith("UNNAMED_")) {
+            return SynthGenerators.dictionary(seed, rowId, key, algo, "v_", 10L);
+        }
+        if ("EPK_ID".equals(key)) {
+            long hi = SynthGenerators.bounded(seed, group, "epkHi", algo, 1_000_000_000L);
+            long lo = SynthGenerators.bounded(seed, group, "epkLo", algo, 10_000_000_000L);
+            return String.format(Locale.ROOT, "%09d%010d", hi, lo);
+        }
+        ColumnGenerator g = catalog == null ? null : catalog.get(key);
+        return generateParam(g, seed, rowId, key, algo, eventName, session, jsonTemplates);
     }
 
     /**
@@ -264,8 +430,8 @@ public final class DatasetGenerator {
             return errors;
         }
         if (ds.validation.checkNullHandling) {
-            if (row.tags == null) {
-                errors.add("tags must be empty array [], not null");
+            if (row.tags == null || row.tags.size() != 3) {
+                errors.add("tags must be an array of 3 elements");
             }
             if (row.paramOldValue == null) {
                 errors.add("paramOldValue must be an array (of nulls), not null column");
@@ -319,7 +485,12 @@ public final class DatasetGenerator {
             }
             sb.append(row.archiveInternalId).append('|')
                     .append(row.archiveInsertTimeMs).append('|')
-                    .append(row.timeMs);
+                    .append(row.timeMs).append('|')
+                    .append(row.id).append('|')
+                    .append(row.sourceSystem).append('|')
+                    .append(row.metamodelHash).append('|')
+                    .append(row.nodeId).append('|')
+                    .append(row.requestId);
             byte[] dig = md.digest(sb.toString().getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder(dig.length * 2);
             for (byte b : dig) {
@@ -370,6 +541,11 @@ public final class DatasetGenerator {
         }
         String gen = g.generator == null ? "" : g.generator;
         switch (gen) {
+            case "always_null":
+                return null;
+            case "numeric_string":
+                return String.format(Locale.ROOT, "%019d",
+                        SynthGenerators.bounded(seed, rowId, key, algo, 1_000_000_000_000_000_000L));
             case "uuid_deterministic":
                 return SynthGenerators.uuidDeterministic(seed, rowId, key, algo);
             case "copy_column":
@@ -412,13 +588,7 @@ public final class DatasetGenerator {
         m.basePath = basePath;
         m.refsPath = refsPath;
         m.manifestPath = manifestPath;
-        String dateValue = "2026-01-15";
-        if (cfg.queries != null && cfg.queries.querySuite != null
-                && cfg.queries.querySuite.defaults != null
-                && cfg.queries.querySuite.defaults.get("date_value") != null) {
-            dateValue = cfg.queries.querySuite.defaults.get("date_value");
-        }
-        m.partitionDates = Collections.singletonList(dateValue);
+        m.partitionDates = Collections.singletonList("2025-04-14--12");
         return m;
     }
 
@@ -437,32 +607,39 @@ public final class DatasetGenerator {
         List<String> userLogins = new ArrayList<>();
         List<String> sessions = new ArrayList<>();
         List<String> epks = new ArrayList<>();
-        List<String> ips = new ArrayList<>();
-        List<String> channels = new ArrayList<>();
-        List<String> devices = new ArrayList<>();
+        List<String> nodes = new ArrayList<>();
+        List<String> ops = new ArrayList<>();
+        java.util.LinkedHashSet<String> epkFile = new java.util.LinkedHashSet<>();
+        long epkScan = Math.min(rowCount, 20000L);
 
-        for (long i = 0; i < limit; i++) {
+        for (long i = 0; i < Math.max(limit, epkScan); i++) {
             EventRow row = factory.create(i);
-            if (userLogins.size() < need) {
-                userLogins.add(row.userLogin);
-            }
-            if (sessions.size() < need) {
-                sessions.add(row.session);
+            if (i < limit) {
+                if (userLogins.size() < need) {
+                    userLogins.add(row.userLogin);
+                }
+                if (sessions.size() < need) {
+                    sessions.add(row.session);
+                }
+                if (nodes.size() < need && row.userNode != null) {
+                    nodes.add(row.userNode);
+                }
             }
             for (int p = 0; p < row.paramName.size(); p++) {
                 String k = row.paramName.get(p);
                 String v = row.paramValue.get(p);
-                if ("EPK_ID".equals(k) && epks.size() < need) {
-                    epks.add(v);
-                } else if ("IP_ADDRESS".equals(k) && ips.size() < need) {
-                    ips.add(v);
-                } else if ("CHANNEL_TYPE".equals(k) && channels.size() < need) {
-                    channels.add(v);
-                } else if ("MOBILE_SDK_DATA".equals(k) && devices.size() < need) {
-                    String os = extractJsonField(v, "DeviceSystemName");
-                    if (os != null) {
-                        devices.add(os);
+                if (v == null) {
+                    continue;
+                }
+                if ("EPK_ID".equals(k)) {
+                    if (epks.size() < need) {
+                        epks.add(v);
                     }
+                    if (epkFile.size() < 10800) {
+                        epkFile.add(v);
+                    }
+                } else if ("OPERATION_UID".equals(k) && ops.size() < need) {
+                    ops.add(v);
                 }
             }
         }
@@ -478,24 +655,14 @@ public final class DatasetGenerator {
         manifest.samples.put("userLogin", bucket(userLogins, cases, sampleN));
         manifest.samples.put("session", bucket(sessions, cases, sampleN));
         manifest.samples.put("EPK_ID", bucket(epks, cases, sampleN));
-        manifest.samples.put("SESSION_ID", bucket(sessions, cases, sampleN));
-        manifest.samples.put("IP_ADDRESS", bucket(ips, cases, sampleN));
-        manifest.samples.put("CHANNEL_TYPE", bucket(channels, cases, sampleN));
+        manifest.samples.put("userNode", bucket(nodes, cases, sampleN));
+        manifest.samples.put("OPERATION_UID", bucket(ops, cases, sampleN));
+        manifest.samples.put("epk_id_list", Collections.singletonMap(
+                "present", new ArrayList<>(epkFile)));
+        manifest.samples.put("name", Collections.singletonMap(
+                "present", java.util.Arrays.asList(NAME_LOGON, NAME_FIND)));
 
-        Map<String, List<String>> device = new LinkedHashMap<>();
-        device.put("present", java.util.Arrays.asList("iOS", "Android"));
-        device.put("absent", Collections.singletonList("UNKNOWN_OS"));
-        device.put("selective", Collections.singletonList("iOS"));
-        device.put("common", Collections.singletonList("Android"));
-        manifest.samples.put("DeviceSystemName", device);
-
-        String dateValue = "2026-01-15";
-        if (cfg.queries != null && cfg.queries.querySuite != null
-                && cfg.queries.querySuite.defaults != null
-                && cfg.queries.querySuite.defaults.get("date_value") != null) {
-            dateValue = cfg.queries.querySuite.defaults.get("date_value");
-        }
-        manifest.partitionDates = Collections.singletonList(dateValue);
+        manifest.partitionDates = Collections.singletonList("2025-04-14--12");
         return manifest;
     }
 

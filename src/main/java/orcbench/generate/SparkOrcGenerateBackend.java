@@ -56,7 +56,9 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
         JavaRDD<Row> rdd = spark.range(0L, rowCount).repartition(partitions).javaRDD()
                 .mapPartitions(new RowPartitionMapper(factory));
 
-        Dataset<Row> df = spark.createDataFrame(rdd, eventSchema());
+        Dataset<Row> df = spark.createDataFrame(rdd, eventSchema())
+                .repartition(partitions, col("__time"))
+                .sortWithinPartitions(col("__time"));
         org.apache.spark.sql.DataFrameWriter<Row> writer = df.write().mode(SaveMode.Overwrite)
                 .option("compression", orc.compression == null
                         ? "snappy" : orc.compression.toLowerCase(Locale.ROOT))
@@ -180,7 +182,7 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
                 DataTypes.createStructField("userNode", DataTypes.StringType, false),
                 DataTypes.createStructField("module", DataTypes.StringType, false),
                 DataTypes.createStructField("name", DataTypes.StringType, false),
-                DataTypes.createStructField("userName", DataTypes.StringType, false),
+                DataTypes.createStructField("userName", DataTypes.StringType, true),
                 DataTypes.createStructField("metamodelVersion", DataTypes.StringType, false),
                 DataTypes.createStructField("tags", DataTypes.createArrayType(DataTypes.StringType), false),
                 DataTypes.createStructField("paramOldValue",
@@ -189,7 +191,12 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
                 DataTypes.createStructField("paramValue", DataTypes.createArrayType(DataTypes.StringType), false),
                 DataTypes.createStructField("archiveInternalId", DataTypes.StringType, false),
                 DataTypes.createStructField("archiveInsertTime", DataTypes.TimestampType, false),
-                DataTypes.createStructField("__time", DataTypes.TimestampType, false)
+                DataTypes.createStructField("__time", DataTypes.TimestampType, false),
+                DataTypes.createStructField("id", DataTypes.StringType, false),
+                DataTypes.createStructField("sourceSystem", DataTypes.StringType, false),
+                DataTypes.createStructField("metamodelHash", DataTypes.StringType, false),
+                DataTypes.createStructField("nodeId", DataTypes.StringType, true),
+                DataTypes.createStructField("requestId", DataTypes.StringType, true)
         });
     }
 
@@ -209,7 +216,12 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
                 toSeq(e.paramValue),
                 e.archiveInternalId,
                 new Timestamp(e.archiveInsertTimeMs),
-                new Timestamp(e.timeMs)
+                new Timestamp(e.timeMs),
+                e.id,
+                e.sourceSystem,
+                e.metamodelHash,
+                e.nodeId,
+                e.requestId
         );
     }
 

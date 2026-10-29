@@ -23,6 +23,7 @@ public final class FakeHiveJdbcBackend implements HiveJdbcBackend {
     public Long fixedHdfsBytesRead = 262_144L;
     public int executeCalls;
     public int closeCalls;
+    public int openSessionCalls;
 
     @Override
     public void applySessionOverrides(Map<String, String> overrides) {
@@ -48,10 +49,19 @@ public final class FakeHiveJdbcBackend implements HiveJdbcBackend {
             return;
         }
         for (Map.Entry<String, String> e : nameToLocation.entrySet()) {
-            registeredTables.put(e.getKey(), e.getValue());
-            executedDdl.add("CREATE EXTERNAL TABLE " + e.getKey()
-                    + " STORED AS ORC LOCATION '" + e.getValue() + "'");
+            String ddl = SchemaDdl.createReferenceTableSql(e.getKey(), e.getValue());
+            registeredTables.put(e.getKey(), ddl);
+            executedDdl.add(ddl);
         }
+    }
+
+    @Override
+    public HiveJdbcBackend openSession() {
+        openSessionCalls++;
+        FakeHiveJdbcBackend copy = new FakeHiveJdbcBackend();
+        copy.fixedOrcBytes = fixedOrcBytes;
+        copy.fixedHdfsBytesRead = fixedHdfsBytesRead;
+        return copy;
     }
 
     @Override

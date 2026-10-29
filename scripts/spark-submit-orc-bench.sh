@@ -21,8 +21,8 @@
 #   --queue NAME            YARN-очередь
 #   --num-executors N       число executor'ов
 #   --executor-cores N      ядра на executor
-#   --executor-memory SIZE  память executor, напр. 16g
-#   --driver-memory SIZE    память драйвера (иначе 4g)
+#   --executor-memory SIZE  память executor, напр. 3g
+#   --driver-memory SIZE    память драйвера (иначе 2g)
 #   --principal PRINCIPAL   Kerberos principal
 #   --keytab PATH           путь к keytab
 #   --name TEXT             имя в YARN App Manager (иначе orc-bench <phase> <scale> …)

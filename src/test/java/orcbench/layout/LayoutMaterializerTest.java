@@ -165,15 +165,10 @@ class LayoutMaterializerTest {
 
         List<ExperimentInstance> buckets = ExperimentExpander.expandPhysical(
                 cfg.benchmark, "S", Collections.singletonList("BUCKETING"));
-        boolean has32 = false;
-        for (ExperimentInstance i : buckets) {
-            if (i.bucketCount == 32) {
-                has32 = true;
-                assertEquals("epk_id", i.bucketKey);
-                assertEquals("hive_compatible_write", i.kind);
-            }
-        }
-        assertTrue(has32);
+        assertEquals(1, buckets.size(), "an explicit excluded id is recorded, not dropped");
+        assertNotNull(buckets.get(0).skipReason);
+        assertTrue(buckets.get(0).skipReason.contains("excluded"));
+        assertFalse(LayoutMaterializer.needsMaterialize(buckets.get(0), "/orc_test/S/RAW_ARRAY_BASE"));
     }
 
     @Test

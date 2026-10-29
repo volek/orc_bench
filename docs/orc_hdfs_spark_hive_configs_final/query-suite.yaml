@@ -1,295 +1,324 @@
-# SQL scenario contracts: nested arrays verified, partition columns must be derived.
-# spec_version 2 (2026-10-16): representation_rewrites matrix (2.2), NP_RAW_ARRAY dropped, NP_MAP_* dialects set.
+# SQL scenario contracts for index CI02001608_CI00982781_SM_UKO.
+# spec_version 3 (2026-10-26). Production path is Spark archive-query on RAW_ARRAY.
+# The service chooses hourly partitions outside SQL and reads them in batches of 20.
+# SQL itself has no time predicate. Every prod statement is SELECT * ORDER BY __time DESC.
+# Hive/LLAP is a separate ORC track: ILIKE is Spark-only; Hive variants use LIKE.
 query_suite:
-  id: audit_queries
-  spec_version: 2
+  id: audit_queries_sm_uko
+  spec_version: 3
   defaults:
     table: events
-    time_start: '2026-01-15 00:00:00'
-    time_end: '2026-01-16 00:00:00'
-    date_value: '2026-01-15'
+    module_value: CI00982781_SM_UKO
+    event_name: SYSTEM_EVENTS_LOGON
+    partition_hours: 120
+    partition_batch_size: 20
+    partition_key_format: yyyy-MM-dd--HH
   parameter_source: dataset_manifest_query_samples
   dialects:
   - spark_3_2
   - hive_tez
-  source_schema_status: verified_native_arrays
+  source_schema_status: index_inventory_2026-10-21
   baseline_representation: RAW_ARRAY
   column_contract:
     original_schema: schema.orc.txt
-    event_date: derived_only_for_partitioned_layouts
+    event_hour_key: derived_partition_column_named_key
+    sql_time_predicate: absent
     EPK_ID: located_by_matching_paramName_and_paramValue_position
     raw_arrays: array<string>
+    spark_array_index: element_at and array_position are 1-based; do not subtract 1 the way the archive SQL does
   sql_template_escaping: runner_must_escape_and_quote_values_by_dialect
+  partition_scope:
+    mode: external_partition_list
+    key_column: key
+    key_format: yyyy-MM-dd--HH
+    batch_size: 20
+    typical_session_batches: 6
+    sql_has_time_predicate: false
+    fallback_window_hours: 120
+    fallback_note: groups without a single logged window use 120 hours, the dominant window in the log
+  workload_mix:
+    note: shares are exact group counts over 1107 queries (2026-07-01..2026-09-30). Section 4.4 rounds the same mix.
+    queries:
+    - query: Q_SESSION_ILIKE
+      share: 0.7904
+      count: 875
+      partition_hours: 120
+    - query: Q_EPK_SPARK
+      share: 0.0967
+      count: 107
+      partition_hours: 120
+      partition_hours_observed: 1-31 days
+    - query: Q_FULLTEXT
+      share: 0.0506
+      count: 56
+      partition_hours: 120
+      partition_hours_observed: 0.4-17 days
+    - query: Q_USERNODE
+      share: 0.0104
+      count_group: 23
+      note: userNode and userLogin are one logged group; the split of 23 queries is not published
+      partition_hours: 120
+      partition_hours_observed: 1-5 days
+    - query: Q_USERLOGIN
+      share: 0.0104
+      count_group: 23
+      partition_hours: 120
+    - query: Q_MODULE_NAME_EPK_FILE
+      share: 0.0181
+      count: 20
+      partition_hours: 360
+    - query: Q_ABSENT_PARAM
+      share: 0.0117
+      count: 13
+      partition_hours: 120
+    - query: Q_OTHER_PARAM
+      share: 0.0054
+      count: 6
+      partition_hours: 120
+      partition_hours_observed: 1-4 days
+    - query: Q_UNFILTERED
+      share: 0.0063
+      count: 7
+      partition_hours: 216
   representation_rewrites:
-    note: NESTED_REPRESENTATIONS cells resolve queries through this table; PAIRS dropped from matrix (variant B)
+    note: production workload stays RAW_ARRAY. Rewrites apply only to the EPK lookup experiment.
     RAW_ARRAY:
-      Q11: NP_ARRAY_EPK_SPARK (spark_3_2) / NP_ARRAY_EPK_HIVE (hive_tez)
-      Q12: skip
-      Q13: skip
-      Q14: skip
-      Q15: skip
-      Q16: skip
-      Q17: skip
+      Q_EPK: Q_EPK_SPARK (spark_3_2) / Q_EPK_HIVE (hive_tez)
     MAP:
-      Q11: NP_MAP_EPK
-      Q15: NP_MAP_JSON
-      Q12: skip
-      Q13: skip
-      Q14: skip
-      Q16: skip
-      Q17: skip
+      Q_EPK: Q_EPK_MAP
     FLAT: native queries
     HYBRID: native queries
   queries:
-  - id: Q01
-    description: RAW baseline time filter; cannot reference event_date which is absent in physical raw schema
+  - id: Q_SESSION_ILIKE
+    description: Production session lookup. 79% of queries, 54% of time, about 4 rows (8 when OR of two sessions). CAST+ILIKE reads every row; bloom does not apply.
+    dialects:
+    - spark_3_2
     representations:
     - RAW_ARRAY
-    - MAP
-    - HYBRID
-    - FLAT
-    sql: |
-      SELECT COUNT(*) FROM ${table}
-      WHERE `__time` >= TIMESTAMP '${time_start}'
-        AND `__time` < TIMESTAMP '${time_end}'
-  - id: Q01_PARTITIONED
-    description: Partition pruning on derived event_date; only use tables physically partitioned by date
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    - FLAT
-    requires:
-    - partition_column_event_date
-    sql: |
-      SELECT COUNT(*) FROM ${table}
-      WHERE event_date = DATE '${date_value}'
-  - id: Q02
-    description: scalar equality with high selectivity
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE userLogin = '${user_login}'
-  - id: Q03
-    description: session equality
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT session, createdAt FROM ${table}
-      WHERE session = '${session_id_outer}'
-  - id: Q04
-    description: low cardinality name filter
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT COUNT(*) FROM ${table}
-      WHERE name = 'LOGON'
-  - id: Q05
-    description: IN condition on scalar values
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT COUNT(*) FROM ${table}
-      WHERE userLogin IN ('${user_login_a}', '${user_login_b}', '${user_login_c}')
-  - id: Q06
-    description: timestamp range; separate version with partition filter required
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT COUNT(*) FROM ${table}
-      WHERE createdAt >= TIMESTAMP '${time_start}'
-        AND createdAt < TIMESTAMP '${time_end}'
-  - id: Q06_PARTITIONED
-    description: Time range plus explicit partition filter on derived event_date
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    - FLAT
-    requires:
-    - partition_column_event_date
-    sql: |
-      SELECT COUNT(*) FROM ${table}
-      WHERE event_date = DATE '${date_value}'
-        AND createdAt >= TIMESTAMP '${time_start}'
-        AND createdAt < TIMESTAMP '${time_end}'
-  - id: Q07_NARROW
-    description: column pruning narrow projection
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE name = 'LOGON'
-  - id: Q07_WIDE
-    description: column pruning full row projection
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
+    partition_hours: 120
+    expect_rows: 4
     sql: |
       SELECT * FROM ${table}
-      WHERE name = 'LOGON'
-  - id: Q08
-    description: aggregation low cardinality
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT name, COUNT(*) FROM ${table}
-      GROUP BY name
-  - id: Q09
-    description: multi-group aggregation
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT module, userNode, COUNT(*) FROM ${table}
-      WHERE createdAt >= TIMESTAMP '${time_start}'
-        AND createdAt < TIMESTAMP '${time_end}'
-      GROUP BY module, userNode
-  - id: Q10
-    description: join with user/module lookup table
-    representations:
-    - RAW_ARRAY
-    - MAP
-    - HYBRID
-    sql: |
-      SELECT e.module, COUNT(*) FROM ${table} e
-      JOIN ${module_dictionary_table} d ON e.module = d.id
-      WHERE d.type = '${type_value}'
-      GROUP BY e.module
-  - id: Q11_DPP
-    description: partition key join for DPP, not ordinary lookup join
-    representations:
-    - HYBRID
-    sql: |
-      SELECT COUNT(*) FROM ${table} e
-      JOIN ${date_dimension_table} d ON e.event_date = d.event_date
-      WHERE d.category = '${date_category}'
-    requires:
-    - date_partitioned_table
-    - partition_dimension_join
-  - id: Q11
-    description: EPK_ID equality in extracted column
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE epk_id = '${epk_id}'
-  - id: Q12
-    description: SESSION_ID equality in extracted column
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT userLogin, session FROM ${table}
-      WHERE session_id = '${nested_session_id}'
-  - id: Q13
-    description: IP_ADDRESS nested parameter flattened
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE ip_address = '${ip_address}'
-  - id: Q14
-    description: combined nested scalar predicates
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE epk_id = '${epk_id}'
-        AND session_id = '${nested_session_id}'
-  - id: Q15
-    description: JSON field already extracted from MOBILE_SDK_DATA
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT userLogin FROM ${table}
-      WHERE device_system_name = '${device_system_name}'
-  - id: Q16
-    description: aggregate nested identifier
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT epk_id, COUNT(*) FROM ${table}
-      GROUP BY epk_id
-  - id: Q17
-    description: join on EPK_ID
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT e.epk_id, COUNT(*) FROM ${table} e
-      JOIN ${epk_dictionary_table} d ON e.epk_id = d.id
-      WHERE d.type = '${type_value}'
-      GROUP BY e.epk_id
-  - id: Q18
-    description: repeated aggregate for materialized view rewrite
-    representations:
-    - FLAT
-    - HYBRID
-    sql: |
-      SELECT name, COUNT(*) AS event_count
-      FROM ${table}
-      GROUP BY name
-  - id: NP_ARRAY_EPK_SPARK
-    description: array position lookup in Spark 3.2; array_position and element_at use 1-based positions
-    dialects:
-    - spark_3_2
-    representations:
-    - RAW_ARRAY
-    sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE array_contains(paramName, 'EPK_ID')
-        AND element_at(paramValue, array_position(paramName, 'EPK_ID')) = '${epk_id}'
-  - id: NP_ARRAY_EPK_HIVE
-    description: Hive array lookup using positional expansion
+      WHERE CAST(session AS STRING) ILIKE '${session_id_outer}'
+      ORDER BY `__time` DESC
+  - id: Q_SESSION_LIKE_HIVE
+    description: Hive stand-in for the session lookup. Session is hex, so LIKE matches ILIKE on these values.
     dialects:
     - hive_tez
     representations:
     - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 4
     sql: |
-      SELECT e.userLogin, e.createdAt FROM ${table} e
+      SELECT * FROM ${table}
+      WHERE CAST(session AS STRING) LIKE '${session_id_outer}'
+      ORDER BY `__time` DESC
+  - id: Q_SESSION_EQ
+    description: Optimized session predicate. Equality can use a bloom on session and skip stripes. This is the lever from analysis §3.10, not the predicate prod sends today.
+    dialects:
+    - spark_3_2
+    - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 4
+    sql: |
+      SELECT * FROM ${table}
+      WHERE session = '${session_id_outer}'
+      ORDER BY `__time` DESC
+  - id: Q_SESSION_EQ_NARROW
+    description: Same equality as Q_SESSION_EQ with a narrow projection, for the column-pruning contrast. Prod always selects every column.
+    dialects:
+    - spark_3_2
+    - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 4
+    sql: |
+      SELECT session, createdAt, `__time` FROM ${table}
+      WHERE session = '${session_id_outer}'
+      ORDER BY `__time` DESC
+  - id: Q_EPK
+    description: EPK lookup on an extracted column. Native form for FLAT and HYBRID. Prod reads the parallel arrays, not this column.
+    dialects:
+    - spark_3_2
+    representations:
+    - FLAT
+    - HYBRID
+    partition_hours: 120
+    expect_rows: 0-25
+    sql: |
+      SELECT * FROM ${table}
+      WHERE name = '${event_name}'
+        AND CAST(epk_id AS STRING) ILIKE '${epk_id}'
+      ORDER BY `__time` DESC
+  - id: Q_EPK_SPARK
+    description: Production EPK lookup on RAW_ARRAY. Archive SQL uses paramValue[ARRAY_POSITION(paramName, 'EPK_ID') - 1] because that dialect is 0-based. Spark element_at and array_position are 1-based, so this form does not subtract 1. EPK_ID exists only on FIND and LOGON.
+    dialects:
+    - spark_3_2
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 0-25
+    sql: |
+      SELECT * FROM ${table}
+      WHERE name = '${event_name}'
+        AND array_contains(paramName, 'EPK_ID')
+        AND element_at(paramValue, array_position(paramName, 'EPK_ID')) ILIKE '${epk_id}'
+      ORDER BY `__time` DESC
+  - id: Q_EPK_HIVE
+    description: Hive positional expansion for the EPK lookup. posexplode positions are 0-based.
+    dialects:
+    - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 0-25
+    sql: |
+      SELECT e.* FROM ${table} e
       LATERAL VIEW posexplode(e.paramName) p AS pos, param_key
-      WHERE p.param_key = 'EPK_ID'
-        AND e.paramValue[p.pos] = '${epk_id}'
-  - id: NP_MAP_EPK
-    description: map lookup, check execution support per engine
+      WHERE e.name = '${event_name}'
+        AND p.param_key = 'EPK_ID'
+        AND e.paramValue[p.pos] LIKE '${epk_id}'
+      ORDER BY e.`__time` DESC
+  - id: Q_EPK_MAP
+    description: Map representation of the EPK lookup. Spark uses ILIKE; run the Hive track with LIKE if ILIKE is rejected.
+    dialects:
+    - spark_3_2
     representations:
     - MAP
+    partition_hours: 120
+    expect_rows: 0-25
     sql: |
-      SELECT userLogin, createdAt FROM ${table}
-      WHERE params['EPK_ID'] = '${epk_id}'
+      SELECT * FROM ${table}
+      WHERE name = '${event_name}'
+        AND CAST(params['EPK_ID'] AS STRING) ILIKE '${epk_id}'
+      ORDER BY `__time` DESC
+  - id: Q_FULLTEXT
+    description: UI "search everywhere" expands to 16 OR predicates of CAST(col AS STRING) LIKE. The analysis names paramName, paramValue, tags and userNode and does not list the other 12. The list below is the string and array columns excluding timestamps and requestId, and is unconfirmed. Cast rendering differs by engine, so result hashes stay engine-local. 5% of queries and 23% of time.
     dialects:
     - spark_3_2
     - hive_tez
-  - id: NP_MAP_JSON
-    description: parse nested JSON within map; actual parse support must be verified
     representations:
-    - MAP
+    - RAW_ARRAY
+    column_list_status: unconfirmed_16
+    partition_hours: 120
+    expect_rows: 0-42
+    expect_rows_heavy_template: 260000
     sql: |
-      SELECT userLogin FROM ${table}
-      WHERE get_json_object(params['MOBILE_SDK_DATA'], '$.DeviceSystemName') = '${device_system_name}'
+      SELECT * FROM ${table}
+      WHERE CAST(paramName AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(paramValue AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(tags AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(userNode AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(userLogin AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(session AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(name AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(module AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(userName AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(sourceSystem AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(nodeId AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(id AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(archiveInternalId AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(paramOldValue AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(metamodelVersion AS STRING) LIKE '${fulltext_pattern}'
+         OR CAST(metamodelHash AS STRING) LIKE '${fulltext_pattern}'
+      ORDER BY `__time` DESC
+  - id: Q_USERNODE
+    description: name plus userNode LIKE. Part of the 23-query group (2% of queries, 9.5% of time) that averages about 19 hours.
     dialects:
     - spark_3_2
     - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 8-73
+    sql: |
+      SELECT * FROM ${table}
+      WHERE name = '${event_name}'
+        AND CAST(userNode AS STRING) LIKE '${user_node}'
+      ORDER BY `__time` DESC
+  - id: Q_USERLOGIN
+    description: name plus userLogin LIKE. Same logged group as Q_USERNODE.
+    dialects:
+    - spark_3_2
+    - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 8-73
+    sql: |
+      SELECT * FROM ${table}
+      WHERE name = '${event_name}'
+        AND CAST(userLogin AS STRING) LIKE '${user_login}'
+      ORDER BY `__time` DESC
+  - id: Q_MODULE_NAME_EPK_FILE
+    description: module and name plus an external file of about 10800 EPK_ID values (~216 KiB). module is a constant, so it prunes nothing. The runner expands ${epk_id_list} from the file. Result is 350 thousand to 6.5 million rows. Typical window is 15 days; two logged queries used 128 days.
+    dialects:
+    - spark_3_2
+    representations:
+    - RAW_ARRAY
+    partition_hours: 360
+    expect_rows: 350000-6500000
+    sql: |
+      SELECT * FROM ${table}
+      WHERE module = '${module_value}'
+        AND name = '${event_name}'
+        AND array_contains(paramName, 'EPK_ID')
+        AND element_at(paramValue, array_position(paramName, 'EPK_ID')) IN (${epk_id_list})
+      ORDER BY `__time` DESC
+  - id: Q_MODULE_NAME_EPK_FILE_HIVE
+    description: Hive form of the EPK file filter.
+    dialects:
+    - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 360
+    expect_rows: 350000-6500000
+    sql: |
+      SELECT e.* FROM ${table} e
+      LATERAL VIEW posexplode(e.paramName) p AS pos, param_key
+      WHERE e.module = '${module_value}'
+        AND e.name = '${event_name}'
+        AND p.param_key = 'EPK_ID'
+        AND e.paramValue[p.pos] IN (${epk_id_list})
+      ORDER BY e.`__time` DESC
+  - id: Q_OTHER_PARAM
+    description: Lookup of a real nested parameter other than EPK_ID. Template uses OPERATION_UID. Logged volume is 6 queries, 0-3 rows.
+    dialects:
+    - spark_3_2
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 0-3
+    sql: |
+      SELECT * FROM ${table}
+      WHERE array_contains(paramName, 'OPERATION_UID')
+        AND element_at(paramValue, array_position(paramName, 'OPERATION_UID')) ILIKE '${operation_uid}'
+      ORDER BY `__time` DESC
+  - id: Q_ABSENT_PARAM
+    description: Lookup of a parameter the index does not contain (STAFF_LOGIN and the six siblings in dataset.parameters.absent_from_index). Result is always empty. 13 queries, about 5% of logged time.
+    dialects:
+    - spark_3_2
+    representations:
+    - RAW_ARRAY
+    partition_hours: 120
+    expect_rows: 0
+    sql: |
+      SELECT * FROM ${table}
+      WHERE array_contains(paramName, 'STAFF_LOGIN')
+        AND element_at(paramValue, array_position(paramName, 'STAFF_LOGIN')) ILIKE '${absent_param_value}'
+      ORDER BY `__time` DESC
+  - id: Q_UNFILTERED
+    description: No predicate. 7 queries over 9 days, about 2.3 million rows. Partition list is still applied outside SQL.
+    dialects:
+    - spark_3_2
+    - hive_tez
+    representations:
+    - RAW_ARRAY
+    partition_hours: 216
+    expect_rows: 2300000
+    sql: |
+      SELECT * FROM ${table}
+      ORDER BY `__time` DESC

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-pilot-s.sh — Pilot S (масштаб S = 100 GB), узкая матрица экспериментов
+# run-pilot-s.sh — Pilot S (один час старой эпохи, ~9.7 GB сжатых)
 #
 # Назначение:
 #   Читает списки экспериментов из conf/pilot-s.yaml и вызывает run-benchmark.sh
 #   с --scale S и нужным --phase. Живые фазы — только на узле Hadoop/SDP.
 #   На машине разработчика: --dry-run-submit | --print | --help.
-#   Старт: 10×4×16g, deploy_mode=cluster; concurrency 1,5 — калибровать на узле.
+#   Старт: профиль common 4×2×3g, deploy_mode=cluster; concurrency 1,5.
 #   Живой запуск отвязан от терминала (см. run-benchmark.sh): скрипт выходит
 #   после application id, приложение на YARN продолжается.
 #
@@ -63,8 +63,8 @@ fi
 
 MATERIALIZE_EXPS="$(orc_bench_yaml_value experiments_materialize_csv "$PILOT_YAML")"
 RUN_EXPS="$(orc_bench_yaml_value experiments_run_csv "$PILOT_YAML")"
-MATERIALIZE_EXPS="${MATERIALIZE_EXPS:-MINMAX_SORT,BLOOM_USER,PARTITIONING}"
-RUN_EXPS="${RUN_EXPS:-ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION}"
+MATERIALIZE_EXPS="${MATERIALIZE_EXPS:-BLOOM_SESSION}"
+RUN_EXPS="${RUN_EXPS:-ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -86,9 +86,9 @@ done
 if [[ "$PRINT_ONLY" -eq 1 ]]; then
   cat <<EOF
 [run-pilot-s] pilot YAML: $PILOT_YAML
-[run-pilot-s] scale=S (100 GB)
-[run-pilot-s] executor_start=10×4×16g  deploy_mode=cluster
-[run-pilot-s] concurrency_start=1,5 (capacity-aware; finalize after trial)
+[run-pilot-s] scale=S (one old-era hour, ~9.7 GB compressed / ~262 GiB logical)
+[run-pilot-s] executor_start=4×2×3g  deploy_mode=cluster
+[run-pilot-s] concurrency_start=1,5 (common profile; ceiling 9)
 [run-pilot-s] materialize --experiments $MATERIALIZE_EXPS
 [run-pilot-s] run         --experiments $RUN_EXPS  --engines spark
 [run-pilot-s] sequence on node:

@@ -35,21 +35,14 @@ class HiveJdbcRunnerTest {
     void dryRunPhaseProducesNotesWithoutJdbc() throws Exception {
         ExperimentPlan plan = ExperimentExpander.buildPlan(
                 cfg, "S", Arrays.asList("hive_tez", "hive_llap"),
-                Arrays.asList("HIVE_TEZ_BASE", "HIVE_VECTORIZATION", "HIVE_MATERIALIZED_VIEW"));
+                Arrays.asList("HIVE_TEZ_BASE", "HIVE_VECTORIZATION"));
         RunPhaseResult result = HiveJdbcRunner.run(
                 cfg, plan, stubSamples(), "S", "dry-hive", null, true, false, null);
         assertTrue(result.dryRun);
         assertEquals(0, result.attempts);
         assertFalse(result.notes.isEmpty());
         assertTrue(result.experimentsPlanned > 0);
-        assertTrue(result.experimentsSkipped >= 1, "MV expected skip");
-        boolean sawMv = false;
-        for (String n : result.notes) {
-            if (n.contains("HIVE_MATERIALIZED_VIEW") && n.contains("skip")) {
-                sawMv = true;
-            }
-        }
-        assertTrue(sawMv);
+        assertTrue(plan.engine.stream().noneMatch(i -> "HIVE_MATERIALIZED_VIEW".equals(i.experimentId)));
         boolean sawZstdNote = false;
         for (String n : result.notes) {
             if (n.contains("ZSTD")) {
@@ -138,6 +131,41 @@ class HiveJdbcRunnerTest {
             }
         }
         assertTrue(anyOk);
+        boolean sawDictionary = false;
+        for (String ddl : fake.executedDdl) {
+            if (ddl.contains("module_dictionary") && ddl.contains("id STRING")
+                    && ddl.contains("type STRING")) {
+                sawDictionary = true;
+            }
+        }
+        assertTrue(sawDictionary, fake.executedDdl.toString());
+        boolean quotedColumn = false;
+        for (String sql : fake.executedSql) {
+            if (sql.contains("`userLogin`") || sql.contains("`__time`")) {
+                quotedColumn = true;
+            }
+        }
+        assertTrue(quotedColumn, fake.executedSql.toString());
+    }
+
+    @Test
+    void concurrencyOpensOneSessionPerExtraSlot() throws Exception {
+        ExperimentPlan plan = ExperimentExpander.buildPlan(
+                cfg, "S", Collections.singletonList("hive_tez"),
+                Collections.singletonList("HIVE_TEZ_BASE"));
+        ExperimentInstance inst = plan.engine.get(0);
+        FakeHiveJdbcBackend fake = new FakeHiveJdbcBackend();
+        List<RunResult> results = HiveJdbcRunner.runExperiment(
+                fake, cfg, inst, stubSamples(), "conc", 2);
+        assertEquals(1, fake.openSessionCalls);
+        assertFalse(results.isEmpty());
+        boolean sawConcurrency = false;
+        for (RunResult r : results) {
+            if ("ok".equals(r.status) && r.concurrency == 2) {
+                sawConcurrency = true;
+            }
+        }
+        assertTrue(sawConcurrency);
     }
 
     @Test

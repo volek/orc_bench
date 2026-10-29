@@ -2,6 +2,7 @@ package orcbench.engine.hive;
 
 import orcbench.engine.QueryTemplate;
 import orcbench.engine.QueryTemplate.BoundQuery;
+import orcbench.engine.QueryTemplate.RejectedQuery;
 import orcbench.io.ResultStore;
 import orcbench.engine.hive.HiveJdbcBackend.QueryExecResult;
 import orcbench.engine.spark.SparkQueryRunner;
@@ -257,8 +258,7 @@ public final class HiveJdbcRunner {
                 table,
                 samples == null ? new QuerySampleManifest() : samples,
                 inst.representation);
-        if (queries.isEmpty()) {
-            results.add(skipped(runId, inst, "no bound queries for dialect " + HIVE_DIALECT));
+        if (!recordRejections(results, runId, inst, cfg, queries)) {
             return results;
         }
 
@@ -282,44 +282,89 @@ public final class HiveJdbcRunner {
                 : Collections.singletonList(1);
 
         for (final int conc : concLevels) {
-            for (final BoundQuery bq : queries) {
-                for (int i = 0; i < warmup; i++) {
-                    results.add(executeOne(
-                            backend, cfg, inst, runId, bq, i, true, conc, orcBytes));
+            List<HiveJdbcBackend> sessions = new ArrayList<HiveJdbcBackend>();
+            sessions.add(backend);
+            try {
+                for (int c = 1; c < conc; c++) {
+                    HiveJdbcBackend extra = backend.openSession();
+                    extra.applySessionOverrides(overrides);
+                    sessions.add(extra);
                 }
-                if (conc <= 1) {
-                    for (int i = 0; i < measured; i++) {
+                for (final BoundQuery bq : queries) {
+                    for (int i = 0; i < warmup; i++) {
                         results.add(executeOne(
-                                backend, cfg, inst, runId, bq, i, false, conc, orcBytes));
+                                backend, cfg, inst, runId, bq, i, true, conc, orcBytes));
                     }
-                } else {
-                    ExecutorService pool = Executors.newFixedThreadPool(conc);
-                    try {
-                        for (int batch = 0; batch < measured; batch++) {
-                            List<Future<RunResult>> futures = new ArrayList<Future<RunResult>>();
-                            for (int c = 0; c < conc; c++) {
-                                final int rep = batch * conc + c;
-                                futures.add(pool.submit(new java.util.concurrent.Callable<RunResult>() {
-                                    @Override
-                                    public RunResult call() {
-                                        return executeOne(
-                                                backend, cfg, inst, runId, bq, rep, false, conc, orcBytes);
-                                    }
-                                }));
-                            }
-                            for (Future<RunResult> f : futures) {
-                                results.add(f.get());
-                            }
+                    if (conc <= 1) {
+                        for (int i = 0; i < measured; i++) {
+                            results.add(executeOne(
+                                    backend, cfg, inst, runId, bq, i, false, conc, orcBytes));
                         }
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    } finally {
-                        pool.shutdownNow();
+                    } else {
+                        ExecutorService pool = Executors.newFixedThreadPool(conc);
+                        try {
+                            for (int batch = 0; batch < measured; batch++) {
+                                List<Future<RunResult>> futures = new ArrayList<Future<RunResult>>();
+                                for (int c = 0; c < conc; c++) {
+                                    final int rep = batch * conc + c;
+                                    final HiveJdbcBackend session = sessions.get(c);
+                                    futures.add(pool.submit(new java.util.concurrent.Callable<RunResult>() {
+                                        @Override
+                                        public RunResult call() {
+                                            return executeOne(
+                                                    session, cfg, inst, runId, bq, rep, false, conc, orcBytes);
+                                        }
+                                    }));
+                                }
+                                for (Future<RunResult> f : futures) {
+                                    results.add(f.get());
+                                }
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        } finally {
+                            pool.shutdownNow();
+                        }
+                    }
+                }
+            } finally {
+                for (int s = 1; s < sessions.size(); s++) {
+                    try {
+                        sessions.get(s).close();
+                    } catch (Exception ignored) {
+                        // the measured attempt already recorded its own error
                     }
                 }
             }
         }
         return results;
+    }
+
+    /**
+     * @return false when nothing is left to measure (rejections already recorded)
+     */
+    private static boolean recordRejections(
+            List<RunResult> results,
+            String runId,
+            ExperimentInstance inst,
+            LoadedConfig cfg,
+            List<BoundQuery> queries) {
+        List<RejectedQuery> rejected = QueryTemplate.unboundQueries(
+                cfg.queries, effectiveQueries(inst), HIVE_DIALECT, inst.representation);
+        List<BoundQuery> runnable = QueryTemplate.runnableQueries(
+                queries, inst.partitionColumns, rejected);
+        queries.clear();
+        queries.addAll(runnable);
+        for (RejectedQuery rq : rejected) {
+            results.add(skipped(runId, inst, rq.queryId, rq.reason));
+        }
+        if (queries.isEmpty()) {
+            if (rejected.isEmpty()) {
+                results.add(skipped(runId, inst, "no bound queries for dialect " + HIVE_DIALECT));
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -489,12 +534,17 @@ public final class HiveJdbcRunner {
     }
 
     private static RunResult skipped(String runId, ExperimentInstance inst, String reason) {
+        return skipped(runId, inst, "*", reason);
+    }
+
+    private static RunResult skipped(
+            String runId, ExperimentInstance inst, String queryId, String reason) {
         RunResult r = new RunResult();
         r.runId = runId;
         r.experimentId = inst.experimentId;
         r.variantLabel = inst.variantLabel;
         r.engine = inst.engine == null ? "hive_tez" : inst.engine;
-        r.queryId = "*";
+        r.queryId = queryId;
         r.status = "skipped";
         r.resultHash = "";
         r.errorMessage = reason;

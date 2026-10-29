@@ -154,13 +154,13 @@ Jar layout in this bundle (repo root, not build/libs/):
   ./orc-bench-0.1.0-SNAPSHOT-all.jar
 
 Pilot S experiments: conf/pilot-s.yaml
-  materialize: MINMAX_SORT,BLOOM_USER,PARTITIONING
-  run: ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION
+  materialize: BLOOM_SESSION
+  run: ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION
 
 Deploy mode is cluster only. Scripts reject --deploy-mode client
 and spark.deploy_mode: client in environment.local.yaml.
 
-Defaults: yarn / deploy_mode=cluster / queue=default / executors 10×4×16g
+Defaults: yarn / deploy_mode=cluster / queue=default / executors 4×2×3g (archive-query common)
 
 Full ops runbook: docs/Запуск на Hadoop кластере.md (if --with-runbook) or
 the repo copy on the developer machine.

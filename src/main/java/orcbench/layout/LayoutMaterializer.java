@@ -29,8 +29,8 @@ public final class LayoutMaterializer {
             "rewrite", "hive_compatible_write")));
 
     private static final List<String> DEFAULT_FLAT_COLS = Collections.unmodifiableList(Arrays.asList(
-            "epk_id", "session_id", "operation_uid", "channel_type",
-            "vsp_code", "osb_code", "tb_code", "ip_address", "device_system_name"));
+            "epk_id", "operation_uid", "card_number", "ip_address", "device_id",
+            "tb_code", "osb_code", "vsp_code"));
 
     private LayoutMaterializer() {}
 

@@ -89,11 +89,11 @@ orc_bench_apply_submit_defaults() {
   fi
   if [[ -z "${NUM_EXECUTORS:-}" ]]; then
     NUM_EXECUTORS="$(orc_bench_yaml_value executor_instances "$yaml")"
-    NUM_EXECUTORS="${NUM_EXECUTORS:-10}"
+    NUM_EXECUTORS="${NUM_EXECUTORS:-4}"
   fi
   if [[ -z "${EXECUTOR_CORES:-}" ]]; then
     EXECUTOR_CORES="$(orc_bench_yaml_value executor_cores "$yaml")"
-    EXECUTOR_CORES="${EXECUTOR_CORES:-4}"
+    EXECUTOR_CORES="${EXECUTOR_CORES:-2}"
   fi
   if [[ -z "${EXECUTOR_MEMORY:-}" ]]; then
     local gib
@@ -101,7 +101,25 @@ orc_bench_apply_submit_defaults() {
     if [[ -n "$gib" ]]; then
       EXECUTOR_MEMORY="${gib}g"
     else
-      EXECUTOR_MEMORY="16g"
+      EXECUTOR_MEMORY="3g"
+    fi
+  fi
+  if [[ -z "${DRIVER_MEMORY:-}" ]]; then
+    local dgib
+    dgib="$(orc_bench_yaml_value driver_memory_gib "$yaml")"
+    DRIVER_MEMORY="${dgib:-2}g"
+  fi
+  if [[ -z "${DRIVER_CORES:-}" ]]; then
+    DRIVER_CORES="$(orc_bench_yaml_value driver_cores "$yaml")"
+    DRIVER_CORES="${DRIVER_CORES:-1}"
+  fi
+  if [[ -z "${EXECUTOR_OVERHEAD:-}" ]]; then
+    local oh
+    oh="$(orc_bench_yaml_value executor_memory_overhead_mib "$yaml")"
+    if [[ -n "$oh" ]]; then
+      EXECUTOR_OVERHEAD="${oh}m"
+    else
+      EXECUTOR_OVERHEAD="512m"
     fi
   fi
   orc_bench_resolve_jar

@@ -96,9 +96,9 @@ class SparkQueryRunnerTest {
         Map<String, Boolean> coverage = SparkQueryRunner.section1Coverage(plan);
         assertTrue(coverage.get("spark.sql.orc.enableVectorizedReader"), "vectorization");
         assertTrue(coverage.get("spark.sql.adaptive.enabled"), "AQE");
-        assertTrue(coverage.get("spark.sql.optimizer.dynamicPartitionPruning.enabled"), "DPP");
-        assertTrue(coverage.get("spark.sql.cbo.enabled"), "CBO");
-        assertTrue(coverage.get("spark.sql.autoBroadcastJoinThreshold"), "broadcast");
+        assertTrue(coverage.get("spark.sql.optimizer.dynamicPartitionPruning.enabled"), "DPP stays on the Spark baseline");
+        assertFalse(coverage.get("spark.sql.cbo.enabled"), "CBO experiment is outside the SM_UKO mix");
+        assertFalse(coverage.get("spark.sql.autoBroadcastJoinThreshold"), "broadcast experiment is outside the SM_UKO mix");
         assertTrue(coverage.get("spark.sql.orc.impl"), "native/hive ORC");
         assertTrue(coverage.get("spark.sql.orc.enableNestedColumnVectorizedReader"), "nested vectorization");
         assertTrue(coverage.get("spark.sql.orc.filterPushdown"), "pushdown (physical)");

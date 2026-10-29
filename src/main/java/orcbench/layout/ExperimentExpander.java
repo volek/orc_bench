@@ -30,6 +30,10 @@ import java.util.Set;
 public final class ExperimentExpander {
     private ExperimentExpander() {}
 
+    static boolean isExcluded(String status) {
+        return status != null && status.startsWith("excluded");
+    }
+
     public static OrcWriteSettings baselineSettings(PhysicalBaseline b) {
         OrcWriteSettings s = new OrcWriteSettings();
         s.compression = b.orc.compression;
@@ -85,6 +89,18 @@ public final class ExperimentExpander {
             if (!want.isEmpty() && !want.contains(exp.id)) {
                 continue;
             }
+            if (isExcluded(exp.status)) {
+                if (!want.isEmpty() && want.contains(exp.id)) {
+                    ExperimentInstance skipped = baseCopy(
+                            exp, base, baseOrc, hdfsRoot, scale, "skipped");
+                    skipped.kind = exp.kind;
+                    skipped.layoutPath = hdfsRoot + "/" + scale + "/" + base.id;
+                    skipped.skipReason = "excluded: " + exp.status;
+                    skipped.queries = new ArrayList<>(exp.queries);
+                    out.add(skipped);
+                }
+                continue;
+            }
             String kind = exp.kind == null ? "" : exp.kind;
             switch (kind) {
                 case "query_only":
@@ -126,11 +142,16 @@ public final class ExperimentExpander {
                 case "derived_layout_query":
                     ExperimentInstance d = baseCopy(exp, base, baseOrc, hdfsRoot, scale, "derived_partition");
                     d.kind = exp.kind;
-                    d.layoutPath = hdfsRoot + "/" + scale + "/PARTITIONING_event_date";
-                    d.partitionColumns = Arrays.asList("event_date");
+                    d.layoutPath = hdfsRoot + "/" + scale + "/PARTITIONING_key";
+                    d.partitionColumns = Arrays.asList("key");
                     d.queries = new ArrayList<>(exp.queries);
                     d.requires = new ArrayList<>(exp.requires);
                     out.add(d);
+                    break;
+                case "runner_partition_list":
+                    ExperimentInstance scope = queryOnly(exp, base, baseOrc, hdfsRoot, scale);
+                    scope.kind = exp.kind;
+                    out.add(scope);
                     break;
                 case "rewrite":
                 case "hive_compatible_write":
@@ -175,7 +196,7 @@ public final class ExperimentExpander {
                     if (!exp.requiresBloomColumns.isEmpty()) {
                         orc.bloomColumns = new ArrayList<>(exp.requiresBloomColumns);
                     } else if (orc.bloomColumns.isEmpty()) {
-                        orc.bloomColumns = Arrays.asList("userLogin");
+                        orc.bloomColumns = Arrays.asList("session");
                     }
                     break;
                 case "row_index_stride":
@@ -249,6 +270,12 @@ public final class ExperimentExpander {
                 if (!want.isEmpty() && !want.contains(exp.id)) {
                     continue;
                 }
+                if (isExcluded(exp.status) || exp.queries.isEmpty()) {
+                    if (!want.isEmpty() && want.contains(exp.id)) {
+                        out.add(skippedEngine(exp, base, baseOrc, layoutPath, "spark", false));
+                    }
+                    continue;
+                }
                 if (exp.property != null && !exp.values.isEmpty()) {
                     for (Object v : exp.values) {
                         ExperimentInstance i = engineBase(exp, base, baseOrc, layoutPath, exp.property + "=" + v);
@@ -281,6 +308,14 @@ public final class ExperimentExpander {
                     continue;
                 }
                 if (!isLlap && !eng.contains("hive_tez")) {
+                    continue;
+                }
+                if (isExcluded(exp.status) || exp.queries.isEmpty()) {
+                    if (!want.isEmpty() && want.contains(exp.id)) {
+                        out.add(skippedEngine(
+                                exp, base, baseOrc, layoutPath,
+                                isLlap ? "hive_llap" : "hive_tez", isLlap));
+                    }
                     continue;
                 }
 
@@ -358,6 +393,7 @@ public final class ExperimentExpander {
             EngineProfile profile = contract.engineProfiles.get(name);
             switch (name) {
                 case "SPARK_BASE":
+                case "SPARK_COMMON":
                     i.engine = "spark";
                     i.sessionOverrides = new LinkedHashMap<>(contract.executionBaselines.spark);
                     applyProfileSet(i, profile);
@@ -579,6 +615,20 @@ public final class ExperimentExpander {
         i.sorting = new ArrayList<>(base.sorting);
         i.targetFileSizeMib = base.targetFileSizeMib;
         i.engine = "spark";
+        return i;
+    }
+
+    private static ExperimentInstance skippedEngine(
+            EngineExperiment exp, PhysicalBaseline base, OrcWriteSettings orc,
+            String layoutPath, String engine, boolean llap) {
+        String reason = isExcluded(exp.status)
+                ? "excluded: " + exp.status
+                : "no queries configured";
+        ExperimentInstance i = engineBase(exp, base, orc, layoutPath, "skipped");
+        i.engine = engine;
+        i.llap = llap;
+        i.skipReason = reason;
+        i.queries = new ArrayList<>(exp.queries);
         return i;
     }
 

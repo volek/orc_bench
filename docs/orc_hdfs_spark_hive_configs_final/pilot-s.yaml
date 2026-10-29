@@ -1,60 +1,64 @@
-# Checkpoint 10 — Pilot S (scale S = 100 GB) narrow experiment set.
+# Checkpoint 10 — Pilot S for index CI02001608_CI00982781_SM_UKO.
 # Contract companion to benchmark.yaml / environment.yaml (not loaded by ConfigLoader).
 # Consumed by scripts/run-pilot-s.sh and docs/Запуск на Hadoop кластере.md §6.2.
 #
-# Full matrix stays in benchmark.yaml; this file is the OVAT pilot filter for first
-# trial + sizing/concurrency calibration (§8.1–§8.2 of the development plan).
-# Live generate/materialize/run — only on a cluster node (plan §7.0).
+# spec_version 3 (2026-10-26). Scale S is one old-era hour (~9.7 GB compressed,
+# ~262 GiB logical), not the previous 100 GiB logical sample.
+# Hourly partition key and sort by __time are the baseline, not pilot experiments.
+# The first layout experiment is a bloom on session, compared with ILIKE vs equality.
 
 pilot_s:
-  id: pilot_s_cp10
+  id: pilot_s_sm_uko
   scale: S
-  scale_gib: 100
+  scale_logical_gib: 262
+  scale_compressed_gb: 9.7
+  hourly_partitions: 1
+  era: old
   deploy_mode: cluster
   engines_spark: spark
+  spark_profile: prod_common
 
-  # First-trial executor sizing (plan §8.1). Headroom vs YARN Effective_Max_Capacity
-  # 221184 MB (~216 GiB) / 67 vCores on 6 datanodes. Finalize after on-node trial.
+  # archive-query profile common (analysis §4.2).
+  # 4 executors × 2 cores + 1 driver core = 9 cores; memory with overhead ≈ 19 GB.
+  # Idle pool (81 cores / 241 GB) fits about 9 such apps. Do not start from 10×4×16g.
   executor_start:
-    instances: 10
-    cores: 4
-    memory_gib: 16
+    instances: 4
+    cores: 2
+    memory_gib: 3
+    memory_overhead_mib: 512
+    driver_cores: 1
+    driver_memory_gib: 2
 
   yarn_capacity_ref:
     datanodes: 6
-    effective_max_memory_mb: 221184
-    effective_max_memory_gib: 216
-    effective_max_vcores: 67
+    queue_effective_max_memory_gib: 216
+    queue_effective_max_vcores: 67
+    pool_vcores: 84
+    pool_memory_gb: 270
+    concurrent_apps_by_cores: 9
 
-  # Pilot start levels (§8.2). Candidates ceiling remains benchmark.runs.concurrency_levels.
-  # Capacity-aware expander with 10×4×16g on 216/67 typically selects [1, 5].
-  # Expand only after a stable trial; calibrate M (500 GB) / L (1024 GB) separately.
+  # Levels that fit the common profile. 25 and 50 do not fit and are not NT targets.
   concurrency_start_levels:
   - 1
   - 5
 
-  # Machine-readable CSV for scripts (keep in sync with lists below).
-  experiments_materialize_csv: MINMAX_SORT,BLOOM_USER,PARTITIONING
-  experiments_run_csv: ORC_COLUMN_PRUNING,ORC_PUSHDOWN,MINMAX_SORT,BLOOM_USER,PARTITIONING,SPARK_VECTORIZATION
+  experiments_materialize_csv: BLOOM_SESSION
+  experiments_run_csv: ORC_COLUMN_PRUNING,ORC_PUSHDOWN,BLOOM_SESSION,SPARK_VECTORIZATION
 
   experiments:
-    # Rewrite layouts that must be written before run.
     materialize:
-    - MINMAX_SORT
-    - BLOOM_USER
-    - PARTITIONING
-    # Full pilot filter for --phase run (physical + SPARK_VECTORIZATION).
+    - BLOOM_SESSION
     run:
     - ORC_COLUMN_PRUNING
     - ORC_PUSHDOWN
-    - MINMAX_SORT
-    - BLOOM_USER
-    - PARTITIONING
+    - BLOOM_SESSION
     - SPARK_VECTORIZATION
 
   notes:
-  - ORC_COLUMN_PRUNING / ORC_PUSHDOWN use RAW_ARRAY_BASE (query_only / reader_settings).
-  - SPARK_VECTORIZATION is engine-only (no extra layout).
-  - Spark ZSTD kept in full COMPRESSION matrix; not required for this pilot slice.
-  - Hive ZSTD deferred (ORC 1.5.6 codec gap); Hive engines out of pilot-S Spark slice.
-  - Expand matrix / scale M|L only after reviewing results/<runId>/ with the user.
+  - Baseline layout is hourly key=yyyy-MM-dd--HH, ZLIB, files ~912 MiB, rows ordered by __time, bloom empty.
+  - BLOOM_SESSION rewrites that layout with a bloom on session. Compare Q_SESSION_ILIKE (prod predicate) with Q_SESSION_EQ.
+  - ORC_COLUMN_PRUNING contrasts Q_SESSION_EQ with Q_SESSION_EQ_NARROW. Prod queries are SELECT *.
+  - ORC_PUSHDOWN and SPARK_VECTORIZATION are reader/engine settings on the baseline layout.
+  - layout_probe 10×4×16g stays in environment.yaml and is not this pilot.
+  - Hive engines stay out of this Spark slice.
+  - Expand matrix or scale M|L only after reviewing results/<runId>/ with the user.

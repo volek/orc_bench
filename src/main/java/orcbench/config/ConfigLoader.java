@@ -175,6 +175,7 @@ public final class ConfigLoader {
             pe.representation = optStr(e, "representation");
             pe.bucketKey = optStr(e, "bucket_key");
             pe.engine = optStr(e, "engine");
+            pe.status = optStr(e, "status");
             c.physicalExperiments.add(pe);
         }
 
@@ -356,6 +357,7 @@ public final class ConfigLoader {
             }
             ee.sessionOverrides = stringMap(e, "session_overrides");
             ee.onMissing = optStr(e, "on_missing");
+            ee.status = optStr(e, "status");
             out.add(ee);
         }
         return out;
