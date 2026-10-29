@@ -31,6 +31,7 @@ class BestOrcSelectorTest {
         List<AggregateStats> agg = MetricsStore.aggregate(rows, 3000L);
 
         BestOrcRule rule = new BestOrcRule();
+        rule.objectiveQueries = Arrays.asList("Q02", "Q03", "Q07_NARROW");
         BestOrcChoice choice = BestOrcSelector.select(agg, rule, null);
 
         assertNotNull(choice.experimentId);
@@ -45,6 +46,7 @@ class BestOrcSelectorTest {
     @Test
     void tieBreakPrefersPartitionedOverSortedWhenP50Equal() {
         BestOrcRule rule = new BestOrcRule();
+        rule.objectiveQueries = Arrays.asList("Q02", "Q03", "Q07_NARROW");
         List<AggregateStats> agg = new ArrayList<AggregateStats>();
         agg.addAll(objectiveRows("MINMAX_SORT", "sorting=[userLogin]", 1000));
         agg.addAll(objectiveRows("PARTITIONING", "partition_columns=[event_date]", 1000));
@@ -57,6 +59,25 @@ class BestOrcSelectorTest {
         BestOrcChoice choice = BestOrcSelector.select(agg, rule, Arrays.asList(sorted, part));
         assertEquals("PARTITIONING", choice.experimentId);
         assertEquals("partitioned", choice.tieBreakClass);
+    }
+
+    @Test
+    void emptySortListIsFlatNotSorted() {
+        BestOrcRule rule = new BestOrcRule();
+        rule.objectiveQueries = Arrays.asList("Q_SESSION_EQ");
+        AggregateStats a = new AggregateStats();
+        a.experimentId = "MINMAX_SORT";
+        a.variantLabel = "sorting=[]";
+        a.queryId = "Q_SESSION_EQ";
+        a.concurrency = 1;
+        a.n = 30;
+        a.p50Ms = 180;
+        a.slaSuccessRate = 1.0;
+        ExperimentInstance layout = layout("MINMAX_SORT", "sorting=[]",
+                Collections.<String>emptyList(), Collections.<String>emptyList(), "ZLIB");
+        BestOrcChoice choice = BestOrcSelector.select(
+                Collections.singletonList(a), rule, Collections.singletonList(layout));
+        assertEquals("flat", choice.tieBreakClass);
     }
 
     @Test

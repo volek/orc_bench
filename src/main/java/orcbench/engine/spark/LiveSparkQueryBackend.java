@@ -2,17 +2,17 @@ package orcbench.engine.spark;
 
 import orcbench.engine.ResultDigest;
 import orcbench.generate.SparkSessionSupport;
+import orcbench.io.HdfsPaths;
 import orcbench.model.Models.LoadedConfig;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.spark.TaskContext;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.util.LongAccumulator;
+import org.apache.spark.util.TaskCompletionListener;
 
 import java.io.Serializable;
 import java.util.Collections;
@@ -136,18 +136,7 @@ public final class LiveSparkQueryBackend implements SparkQueryBackend {
 
     @Override
     public Long estimateOrcBytes(String layoutPath) {
-        try {
-            Path p = new Path(layoutPath);
-            FileSystem fs = p.getFileSystem(spark.sparkContext().hadoopConfiguration());
-            long sum = 0L;
-            RemoteIterator<LocatedFileStatus> it = fs.listFiles(p, true);
-            while (it.hasNext()) {
-                sum += it.next().getLen();
-            }
-            return sum;
-        } catch (Exception ex) {
-            return null;
-        }
+        return HdfsPaths.sumFileBytes(layoutPath, spark.sparkContext().hadoopConfiguration());
     }
 
     /**
@@ -159,18 +148,38 @@ public final class LiveSparkQueryBackend implements SparkQueryBackend {
     @Override
     public QueryExecResult execute(String sql) throws Exception {
         Dataset<Row> df = spark.sql(sql);
-        JavaRDD<ResultDigest> partials = df.javaRDD().mapPartitions(new FoldPartition());
+        // One accumulator per statement so concurrent slots do not add each other's bytes.
+        LongAccumulator bytes = spark.sparkContext().longAccumulator("orcbench.hdfsBytesRead");
+        JavaRDD<ResultDigest> partials = df.javaRDD().mapPartitions(new FoldPartition(bytes));
         ResultDigest total = partials.fold(new ResultDigest(), new MergeDigests());
-        return new QueryExecResult(new String[0], null, total.count(), total.hashHex());
+        return new QueryExecResult(new String[0], Long.valueOf(bytes.value()), total.count(), total.hashHex());
     }
 
     /** One digest per partition. Static so the closure does not capture the backend. */
     private static final class FoldPartition
             implements FlatMapFunction<Iterator<Row>, ResultDigest>, Serializable {
         private static final long serialVersionUID = 1L;
+        private final LongAccumulator hdfsBytes;
+
+        FoldPartition(LongAccumulator hdfsBytes) {
+            this.hdfsBytes = hdfsBytes;
+        }
 
         @Override
         public Iterator<ResultDigest> call(Iterator<Row> rows) {
+            TaskContext ctx = TaskContext.get();
+            if (ctx != null && hdfsBytes != null) {
+                ctx.addTaskCompletionListener(new TaskCompletionListener() {
+                    @Override
+                    public void onTaskCompletion(TaskContext context) {
+                        if (context != null
+                                && context.taskMetrics() != null
+                                && context.taskMetrics().inputMetrics() != null) {
+                            hdfsBytes.add(context.taskMetrics().inputMetrics().bytesRead());
+                        }
+                    }
+                });
+            }
             ResultDigest digest = new ResultDigest();
             while (rows.hasNext()) {
                 digest.add(canonicalRow(rows.next()));

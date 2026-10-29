@@ -11,10 +11,8 @@ dataset:
   canonical_representation: RAW_ARRAY
   preserve_original_physical_schema: true
   baseline_is_original_orc_schema: true
-  schema_column_order: >
-    Sample footer order is kept. id, sourceSystem, metamodelHash, nodeId and requestId
-    are appended. Section 2.1 of the analysis groups createdAt with __time and is a
-    description, not a re-read ORC footer.
+  schema_column_order: >-
+    Exact order from ORC footer for key=2026-06-28--09; preserve for positional ORC readers and generated Hive DDL.
   index:
     name: CI02001608_CI00982781_SM_UKO
     module: CI00982781_SM_UKO
@@ -36,7 +34,7 @@ dataset:
   index_profile:
     studied_partition: key=2026-06-28--09
     era_of_studied_partition: new
-    rows: 19160061
+    rows: 19159061
     compressed_gb: 5.34
     uncompressed_gb: 144
     bytes_per_row_compressed: 280
@@ -46,12 +44,25 @@ dataset:
     compression: ZLIB
     compression_ratio: 27
     files: 7
-    file_layout: six files ~0.89 GB (~3.2e6 rows, 10 minutes) plus a 31 MB tail
-    rows_ordered_by: __time
+    file_layout: Six large files (855199756..893366535 bytes) and one small 31395453-byte file with first timestamp
+      prefix; no tail claim.
+    rows_ordered_by: __time (assumed from file naming/time ranges; monotonic ordering not proven by supplied 
+      results)
     stripes_per_file: 100
-    rows_per_stripe: 31000
-    compressed_stripe_mb: 8.4
-    stripe_note: 8.4 MB is the ZLIB size. Uncompressed stripe target stays 64 MiB (~31k rows × ~1.9 KB).
+    rows_per_stripe: 30902
+    compressed_stripe_mb: 8.434171
+    stripe_note: Measured compressed stripe mean 8434171 bytes; writer stripe target 64 MiB is a benchmark 
+      assumption, not established by this footer.
+    observed_profile_ref: observed-orc-profile.yaml
+    observed_json_row_length_unit: characters; source Spark length(to_json(struct(*)))
+    observed_json_row_length_quantiles:
+    - 1720
+    - 1976
+    - 2167
+    - 2176
+    - 2208
+    observed_json_row_length_max: 2466
+    observed_json_row_length_avg: 1923.2
   derived_representations:
   - PAIRS
   - MAP
@@ -68,10 +79,12 @@ dataset:
     tags: array of 3 elements, never null and never empty
     paramOldValue: array of NULL elements (not empty string), one element per paramName
     userName: empty string; null when name is MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
-    requestId: null
+    requestId:
     nodeId: empty string; filled only for MONITORING
-    userLogin_monitoring: empty string
+    userLogin_monitoring:
     validator: check_null_handling expects exactly these encodings
+    userLogin_monitoring_note: Observed 22807 NULL userLogin rows equals MONITORING event count; event-conditional 
+      relation requires grouped verification.
   scales:
     S:
       purpose: one old-era hour, mechanism and layout experiments
@@ -105,7 +118,8 @@ dataset:
     base_time_zone: UTC
     timestamp_range:
       profile: synthetic_old_era_slice
-      note: median query depth is 545 days back into spring 2025, where hours are ~2.4× the new era. This slice stands in for that era; it is not the full 2024-03-11..2026-10-21 history.
+      note: median query depth is 545 days back into spring 2025, where hours are ~2.4× the new era. This slice 
+        stands in for that era; it is not the full 2024-03-11..2026-10-21 history.
       from: '2025-04-14T00:00:00Z'
       to_exclusive: '2025-04-19T00:00:00Z'
     scale_window:
@@ -127,13 +141,14 @@ dataset:
       night_hours_22_00_compressed_gb: [0.7, 0.9]
       note: recorded for comparison. Generation uses the old era, which is what typical queries read.
     source_materialization: once_per_scale
-    row_count: null
+    row_count:
     strict_cardinality: true
     null_profile: declared_exceptions_only (see dataset.null_semantics)
     parallel_array_alignment: positionally_matched
     timezone_assumption_requires_validation: true
   session_model:
-    note: a client login is a triple that shares session. FIND and LOGON also share EPK_ID. Events of one triple fall within a few seconds. A session lookup must hit 3-8 rows.
+    note: a client login is a triple that shares session. FIND and LOGON also share EPK_ID. Events of one triple 
+      fall within a few seconds. A session lookup must hit 3-8 rows.
     typical_events_per_session: 3
     p90_events_per_session: 4
     max_events_per_session: 1399
@@ -156,7 +171,8 @@ dataset:
       user_login: client_numeric
       epk_id: absent
       session_id_param: absent
-    residual_events: the six rarer name values, plus the small count gap between the three triple members, are separate rows and keep the published name weights
+    residual_events: the six rarer name values, plus the small count gap between the three triple members, are 
+      separate rows and keep the published name weights
   columns:
     id:
       generator: uuid_deterministic
@@ -172,21 +188,28 @@ dataset:
         cardinality: 1
         alphabet: letters
         value: synthetic constant, not a real login
-      empty_scope: MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP
+      empty_scope: none observed in studied partition; NULL on 22807 rows, assumed MONITORING only pending grouped 
+        verification
+      null_when_name: MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP (inferred from matching count, verify by 
+        grouping)
+      observed_approx_distinct_per_studied_hour: 4853348
     createdAt:
       generator: timestamp_uniform
       resolution: millisecond
-      distinct_per_median_hour: 3400000
+      distinct_per_median_hour: 3443901
     session:
       generator: hex_fixed_length
       length: 64
       cardinality_per_median_hour: 6600000
       events_per_session_typical: 3
+      observed_approx_distinct_per_studied_hour: 6604466
     userNode:
       generator: documentation_ip_v4
       max_length: 15
       cardinality_per_median_hour: 1750000
-      skew: 20 synthetic hot addresses cover the same row share as the 20 busiest prod addresses (about 14-56 thousand events each). Do not copy the real 30.72/30.73 literals.
+      skew: 20 synthetic hot addresses cover the same row share as the 20 busiest prod addresses (about 14-56 
+        thousand events each). Do not copy the real 30.72/30.73 literals.
+      observed_approx_distinct_per_studied_hour: 1751628
     module:
       generator: constant
       value: CI00982781_SM_UKO
@@ -293,8 +316,9 @@ dataset:
     default_order_profile: epk_id_at_1based_position_7_to_9
     duplicate_names: forbidden_in_baseline
     missing_keys_profile: none_in_baseline
-    distinct_names_in_index: 53
-    catalog_coverage: 30 names itemized in the analysis (17 ufs + 13 business). The other 23 are unnamed fillers.
+    distinct_names_in_index: 50
+    catalog_coverage: 30 previously modeled named keys (requires catalog verification); 20 synthetic filler slots 
+      to reach observed approx_distinct=50
     catalog:
       ufs.auditContextUUID:
         generator: uuid_deterministic
@@ -354,7 +378,8 @@ dataset:
         presence: 0.625
         length: [3, 21]
         cardinality_per_median_hour: 1230000
-        note: analysis also mentions FIO, birth date and document series without parameter names. Do not invent those names.
+        note: analysis also mentions FIO, birth date and document series without parameter names. Do not invent 
+          those names.
       DEVICE_ID:
         generator: prefixed_id
         prefix: device_id_
@@ -400,13 +425,15 @@ dataset:
       remaining_generator: dictionary
       remaining_cardinality: [1, 9]
       remaining_length: [1, 22]
-      note: the analysis does not name the other 13 ufs keys. Use synthetic names ufs.synthetic_01..ufs.synthetic_13.
+      note: the analysis does not name the other 13 ufs keys. Use synthetic names 
+        ufs.synthetic_01..ufs.synthetic_13.
     unnamed_fillers:
-      count: 23
+      count: 20
       name_pattern: UNNAMED_%02d
       generator: dictionary
       cardinality: 10
-      note: present only as needed so a row reaches its keys_per_row. These are not real index names.
+      note: 20 placeholder slots assuming the 30 modeled names all belong to the observed 50; complete catalog and 
+        duplicate checking still required.
     absent_from_index:
     - STAFF_LOGIN
     - STAFF_NUMBER
@@ -530,3 +557,29 @@ dataset:
     check_session_triple: true
     check_epk_only_on_find_and_logon: true
     check_tags_length_3: true
+
+  # Additional optional checks based on spark_queries.sql profiles.
+  # SQL supplies measurements, but not acceptance thresholds.
+  profiling_validation:
+    enabled: false  # activate after profiling metrics and comparator are implemented
+    source: profiling-suite.yaml
+    check_column_null_distribution: true
+    check_array_length_distribution: true
+    check_parameter_value_lengths: true
+    check_parameter_cardinality: true
+    check_epk_cardinality: true
+    check_epk_position_distribution: true
+    check_events_per_epk: true
+    check_epk_userlogin_relationship: true
+    check_timestamp_relationship: true
+    check_partition_time_alignment: true
+    check_distribution_across_files: true
+    check_distribution_across_partitions: true
+    approximation_tolerances:
+    note: >-
+      Observed physical/column metrics now supplied for one new-era partition. Other checks need outputs of the corresponding
+      spark_queries.sql sections; no numeric tolerances assumed.
+    observed_profile_ref: observed-orc-profile.yaml
+    check_observed_null_elements: true
+    check_schema_footer_column_order: true
+    check_orc_footer_file_manifest: true

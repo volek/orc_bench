@@ -1,0 +1,209 @@
+Spark context Web UI available at http://pplos-audi00059.ipaint.sber.ru:4040
+Spark context available as 'sc' (master = yarn, app id = application_1789230013226_20532).
+Spark session available as 'spark'.
+=== Партиция: /prom-secondary/archive/sources/CI02001608/CI02001608_CI00982781_SM_UKO/key=2026-06-28--09
+=== Строк: 19159061
+=== Схема:
+root
+ |-- metamodelHash: string (nullable = true)
+ |-- session: string (nullable = true)
+ |-- sourceSystem: string (nullable = true)
+ |-- module: string (nullable = true)
+ |-- userName: string (nullable = true)
+ |-- metamodelVersion: string (nullable = true)
+ |-- userLogin: string (nullable = true)
+ |-- createdAt: timestamp (nullable = true)
+ |-- requestId: string (nullable = true)
+ |-- userNode: string (nullable = true)
+ |-- name: string (nullable = true)
+ |-- id: string (nullable = true)
+ |-- nodeId: string (nullable = true)
+ |-- tags: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- paramName: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- paramValue: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- paramOldValue: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- archiveInternalId: string (nullable = true)
+ |-- archiveInsertTime: timestamp (nullable = true)
+ |-- __time: timestamp (nullable = true)
+
+
+=== 1. Строковые колонки (13)
++-----------------+--------+--------+--------+-------------+-------+-------+--------+----------+--------+---------+
+|column           |nulls   |empty   |distinct|len_p50_90_99|len_max|len_avg|digits  |no_letters|letters |json_like|
++-----------------+--------+--------+--------+-------------+-------+-------+--------+----------+--------+---------+
+|metamodelHash    |0       |0       |2       |[64, 64, 64] |64     |64.0   |0       |0         |19159061|0        |
+|session          |0       |0       |6604466 |[64, 64, 64] |64     |64.0   |0       |0         |19159061|0        |
+|sourceSystem     |0       |0       |1       |[10, 10, 10] |10     |10.0   |0       |0         |19159061|0        |
+|module           |0       |0       |1       |[17, 17, 17] |17     |17.0   |0       |0         |19159061|0        |
+|userName         |22807   |19136254|1       |[0, 0, 0]    |0      |0.0    |0       |0         |0       |0        |
+|metamodelVersion |0       |0       |2       |[64, 64, 64] |64     |64.0   |0       |0         |19159061|0        |
+|userLogin        |22807   |0       |4853348 |[16, 16, 16] |16     |13.2   |13188214|0         |5948040 |0        |
+|requestId        |19159061|0       |0       |NULL         |NULL   |NULL   |0       |0         |0       |0        |
+|userNode         |0       |0       |1751628 |[13, 14, 15] |15     |13.0   |0       |19159061  |0       |0        |
+|name             |0       |0       |9       |[19, 56, 56] |56     |31.9   |0       |0         |19159061|0        |
+|id               |0       |0       |19492135|[36, 36, 36] |36     |36.0   |0       |8         |19159053|0        |
+|nodeId           |0       |19136254|1181    |[0, 0, 0]    |25     |0.0    |0       |0         |22807   |0        |
+|archiveInternalId|0       |0       |19806478|[36, 36, 36] |36     |36.0   |0       |7         |19159054|0        |
++-----------------+--------+--------+--------+-------------+-------+-------+--------+----------+--------+---------+
+
+
+=== 2. Массивы строк (4)
++-------------+-----+-----+--------------+--------+--------+-----------------------+-----------------+
+|column       |nulls|empty|size_p50_90_99|size_max|size_avg|as_string_len_p50_90_99|as_string_len_max|
++-------------+-----+-----+--------------+--------+--------+-----------------------+-----------------+
+|tags         |0    |0    |[3, 3, 3]     |3       |3.0     |[114, 114, 114]        |128              |
+|paramName    |0    |0    |[32, 39, 39]  |40      |31.0    |[461, 557, 557]        |564              |
+|paramValue   |0    |0    |[32, 39, 39]  |40      |31.0    |[477, 514, 578]        |874              |
+|paramOldValue|0    |0    |[32, 39, 39]  |40      |31.0    |[192, 234, 234]        |240              |
++-------------+-----+-----+--------------+--------+--------+-----------------------+-----------------+
+
++---------------+---------+---------+-----+--------+-------------+-------+-------+--------+----------+---------+---------+
+|column         |elements |nulls    |empty|distinct|len_p50_90_99|len_max|len_avg|digits  |no_letters|letters  |json_like|
++---------------+---------+---------+-----+--------+-------------+-------+-------+--------+----------+---------+---------+
+|tags[]         |57477183 |0        |0    |1257    |[35, 41, 41] |55     |36.0   |0       |0         |57477183 |0        |
+|paramName[]    |593161602|0        |0    |50      |[12, 18, 22] |22     |12.6   |0       |0         |593161602|0        |
+|paramValue[]   |593161602|57408762 |0    |80083077|[8, 32, 64]  |514    |12.4   |64743568|125054535 |345954737|0        |
+|paramOldValue[]|593161602|593161602|0    |0       |NULL         |NULL   |NULL   |0       |0         |0        |0        |
++---------------+---------+---------+-----+--------+-------------+-------+-------+--------+----------+---------+---------+
+
+
+=== 3. Остальные колонки (3)
++-----------------+---------+-----+--------+-----------------------+-----------------------+
+|column           |type     |nulls|distinct|min                    |max                    |
++-----------------+---------+-----+--------+-----------------------+-----------------------+
+|createdAt        |timestamp|0    |3443901 |2026-06-28 09:00:00    |2026-06-28 09:59:59.999|
+|archiveInsertTime|timestamp|0    |3395670 |2026-06-28 09:00:00.011|2026-06-28 10:00:00.254|
+|__time           |timestamp|0    |3443901 |2026-06-28 09:00:00    |2026-06-28 09:59:59.999|
++-----------------+---------+-----+--------+-----------------------+-----------------------+
+
+
+=== 4. Размер строки в JSON-представлении (все колонки)
++------------------------------+----------------+----------------+
+|row_json_len_p10_50_90_99_999 |row_json_len_max|row_json_len_avg|
++------------------------------+----------------+----------------+
+|[1720, 1976, 2167, 2176, 2208]|2466            |1923.2          |
++------------------------------+----------------+----------------+
+
+
+=== 5. Топ-30 значений справочных колонок: metamodelVersion, module, name, tags, userNode, metamodelHash, truncatedBy, sourceSystem, eventCode
+--- metamodelHash
++----------------------------------------------------------------+--------+
+|value                                                           |cnt     |
++----------------------------------------------------------------+--------+
+|8E9BAF5892CA9FEF8076EA1FC432482EBDD612A261535A4AD784B0081AC7E44F|16391309|
+|99DC38CAD59FFF7AF43F00C5B1F98CE0E6A67AB7D8E63223FCD1DBCF83BD41E8|2767752 |
++----------------------------------------------------------------+--------+
+
+--- sourceSystem
++----------+--------+
+|value     |cnt     |
++----------+--------+
+|CI02001608|19159061|
++----------+--------+
+
+--- module
++-----------------+--------+
+|value            |cnt     |
++-----------------+--------+
+|CI00982781_SM_UKO|19159061|
++-----------------+--------+
+
+--- metamodelVersion
++----------------------------------------------------------------+--------+
+|value                                                           |cnt     |
++----------------------------------------------------------------+--------+
+|11BA2BC5E37794E709449C2C5C8FC6D76F977149D05C8EF61F462AA6ECA105E8|16391309|
+|000FAA30C664AE32CBB353B8554A7E7CC30073FEE1BE510F4E33FCCF76403456|2767752 |
++----------------------------------------------------------------+--------+
+
+--- userNode
++-------------+-----+
+|value        |cnt  |
++-------------+-----+
+|30.73.59.243 |56339|
+|30.72.208.13 |54462|
+|30.72.208.59 |51974|
+|30.72.208.15 |51684|
+|30.73.59.247 |51575|
+|30.73.59.157 |47030|
+|30.72.208.21 |44809|
+|30.72.208.58 |43058|
+|30.73.59.164 |42254|
+|30.73.59.171 |41436|
+|30.73.59.230 |40346|
+|30.73.59.153 |40095|
+|30.72.208.105|38356|
+|30.73.59.163 |37138|
+|30.73.59.181 |35770|
+|30.72.208.94 |34307|
+|30.72.208.102|33647|
+|30.73.59.195 |31795|
+|30.72.208.22 |21778|
+|30.72.208.2  |13726|
+|91.206.14.128|4184 |
+|67.159.24.34 |3571 |
+|46.33.10.132 |3068 |
+|29.64.162.171|2503 |
+|29.64.239.222|2502 |
+|29.64.174.38 |2501 |
+|29.64.181.8  |2501 |
+|29.64.219.191|2501 |
+|29.64.224.80 |2501 |
+|29.64.250.185|2500 |
++-------------+-----+
+
+--- name
++--------------------------------------------------------+-------+
+|value                                                   |cnt    |
++--------------------------------------------------------+-------+
+|SYSTEM_EVENTS_CREATE_SESSION_WITH_CONFIGURATION_RESPONSE|6037221|
+|SYSTEM_EVENTS_FIND                                      |5943387|
+|SYSTEM_EVENTS_LOGON                                     |5943317|
+|SYSTEM_EVENTS_CREATE_SESSION_RESPONSE                   |811676 |
+|SYSTEM_EVENTS_GET_EXTENDED_PERMISSIONS_MOBILE_RESPONSE  |371027 |
+|SYSTEM_EVENTS_FORCE_MS_NOTIFICATION_RESPONSE            |27659  |
+|MONITORING_IP_UFS_SESSION_REGISTRY_CHANGE_IP            |22807  |
+|SYSTEM_EVENTS_SEND_OPERATION_DATA_SBERKIDS_GUEST        |1573   |
+|SYSTEM_EVENTS_GET_CONFIGURATION_WEBVIEW_RESPONSE        |394    |
++--------------------------------------------------------+-------+
+
+--- tags
++------------------------------------------+--------+
+|value                                     |cnt     |
++------------------------------------------+--------+
+|audit.CImodule:CI00982781_SM_UKO          |19159061|
+|audit.namespace:ci02001608-sbol-sm-uko-b7 |3215257 |
+|audit.namespace:ci02001608-sbol-sm-uko-b2 |2757197 |
+|audit.namespace:ci02001608-sbol-sm-uko-b1 |2735274 |
+|audit.namespace:ci02001608-sbol-sm-uko-b3 |2689020 |
+|audit.namespace:ci02001608-sbol-sm-uko-b5 |2655250 |
+|audit.namespace:ci02001608-sbol-sm-uko-b4 |2554728 |
+|audit.namespace:ci02001608-sbol-sm-uko-b6 |2516595 |
+|audit.namespace:ci02001608-sbol-sm-uko-gf1|32478   |
+|audit.pod:launcher-sm-unver-8-g7jsr       |20152   |
+|audit.pod:launcher-sm-unver-8-lss8r       |20149   |
+|audit.pod:launcher-sm-unver-8-xzzvj       |20140   |
+|audit.pod:launcher-sm-unver-8-mqg7l       |20105   |
+|audit.pod:launcher-sm-unver-8-875xc       |20019   |
+|audit.pod:launcher-sm-unver-8-gl99l       |20019   |
+|audit.pod:launcher-sm-unver-8-6sghk       |19994   |
+|audit.pod:launcher-sm-unver-8-dpwf6       |19975   |
+|audit.pod:launcher-sm-unver-8-7ppt5       |19944   |
+|audit.pod:launcher-sm-unver-8-l5w9d       |19929   |
+|audit.pod:launcher-sm-unver-8-6znqm       |19928   |
+|audit.pod:launcher-sm-unver-8-k8n8z       |19925   |
+|audit.pod:launcher-sm-unver-8-9svzq       |19899   |
+|audit.pod:launcher-sm-unver-8-n74gz       |19890   |
+|audit.pod:launcher-sm-unver-8-9wtmt       |19881   |
+|audit.pod:launcher-sm-unver-8-6bd7k       |19879   |
+|audit.pod:launcher-sm-unver-8-hbfmk       |19879   |
+|audit.pod:launcher-sm-unver-8-fxwwp       |19870   |
+|audit.pod:launcher-sm-unver-8-8lg6h       |19867   |
+|audit.pod:launcher-sm-unver-8-q8nvz       |19854   |
+|audit.pod:launcher-sm-unver-8-vtzk5       |19844   |
++------------------------------------------+--------+
+

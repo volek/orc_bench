@@ -247,7 +247,13 @@ public final class HiveJdbcRunner {
                 SchemaDdl.representationExtras(inst.representation));
         boolean repair = inst.partitionColumns != null && !inst.partitionColumns.isEmpty();
         backend.ensureExternalTable(table, ddl, repair);
-        backend.ensureRefTables(refTableLocations(layout));
+        String refError = null;
+        try {
+            backend.ensureRefTables(refTableLocations(layout));
+        } catch (Exception ex) {
+            refError = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            System.out.println("[run] reference tables not visible to JDBC: " + refError);
+        }
 
         Long orcBytes = backend.estimateOrcBytes(layout);
 
@@ -260,6 +266,22 @@ public final class HiveJdbcRunner {
                 inst.representation);
         if (!recordRejections(results, runId, inst, cfg, queries)) {
             return results;
+        }
+        if (refError != null) {
+            List<BoundQuery> kept = new ArrayList<BoundQuery>();
+            for (BoundQuery bq : queries) {
+                if (bq.sql != null && bq.sql.toLowerCase(Locale.ROOT).contains("module_dictionary")) {
+                    results.add(skipped(runId, inst, bq.queryId,
+                            "module_dictionary is not visible to this JDBC session: " + refError));
+                } else {
+                    kept.add(bq);
+                }
+            }
+            queries.clear();
+            queries.addAll(kept);
+            if (queries.isEmpty()) {
+                return results;
+            }
         }
 
         // Warm LLAP cache: one priming execute before measured loop (observational).
@@ -317,13 +339,21 @@ public final class HiveJdbcRunner {
                                     }));
                                 }
                                 for (Future<RunResult> f : futures) {
-                                    results.add(f.get());
+                                    try {
+                                        results.add(f.get());
+                                    } catch (Exception slot) {
+                                        // One slot's failure must not cancel the others.
+                                        RunResult failed = ok(runId, inst, bq.queryId, -1, false, conc,
+                                                0L, "", 0L, orcBytes, null);
+                                        failed.status = "error";
+                                        failed.errorMessage = slot.getMessage() == null
+                                                ? slot.toString() : slot.getMessage();
+                                        results.add(failed);
+                                    }
                                 }
                             }
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
                         } finally {
-                            pool.shutdownNow();
+                            pool.shutdown();
                         }
                     }
                 }

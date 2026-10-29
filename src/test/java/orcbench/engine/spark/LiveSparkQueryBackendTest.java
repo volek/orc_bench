@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import orcbench.engine.ResultDigest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class LiveSparkQueryBackendTest {
 
@@ -24,6 +25,7 @@ class LiveSparkQueryBackendTest {
             assertEquals(3L, result.logicalRows);
             assertEquals(ResultDigest.hashRows(canonical), result.resultHash);
             assertEquals(0, result.rowStrings.length);
+            assertNotNull(result.hdfsBytesRead);
         } finally {
             spark.stop();
         }

@@ -1,0 +1,13 @@
+{
+  "yaml_parse": "passed",
+  "production_query_templates": 16,
+  "profiling_selects": 42,
+  "profiling_setup_statements": 7,
+  "observed_rows": 19159061,
+  "observed_file_count": 7,
+  "observed_manifest_sums": "passed",
+  "schema_column_order": "footer_exact",
+  "new_runner_support_implemented": false,
+  "profiling_enabled": false,
+  "pilot_baseline_validation_enabled": false
+}

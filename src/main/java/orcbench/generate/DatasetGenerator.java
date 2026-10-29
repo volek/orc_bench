@@ -201,6 +201,9 @@ public final class DatasetGenerator {
         }
     }
 
+    /** Placeholder parameter names beyond the modeled catalog. See dataset.yaml unnamed_fillers.count. */
+    static final int UNNAMED_FILLER_LIMIT = 20;
+
     static final String NAME_FIND = "SYSTEM_EVENTS_FIND";
     static final String NAME_LOGON = "SYSTEM_EVENTS_LOGON";
     static final String NAME_CREATE = "SYSTEM_EVENTS_CREATE_SESSION_WITH_CONFIGURATION_RESPONSE";
@@ -355,7 +358,9 @@ public final class DatasetGenerator {
         }
         int target = paramTarget(eventName, seed, rowId, algo);
         int filler = 1;
-        while (keys.size() < target && filler <= 23) {
+        // 30 modeled names + 20 fillers ≈ observed approx_distinct(paramName)=50.
+        // Do not treat that approximate distinct as an exact unique-count gate.
+        while (keys.size() < target && filler <= UNNAMED_FILLER_LIMIT) {
             keys.add(String.format(Locale.ROOT, "UNNAMED_%02d", filler));
             filler++;
         }

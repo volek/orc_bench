@@ -28,12 +28,14 @@ benchmark:
     dataset: dataset.yaml
     environment: environment.yaml
     queries: query-suite.yaml
+    profiling: profiling-suite.yaml
+    observed_profile: observed-orc-profile.yaml
   physical_baseline:
     id: RAW_ARRAY_BASE
     representation: RAW_ARRAY
     partitioning:
     - key
-    bucketing: null
+    bucketing:
     sorting:
     - __time
     # Median-hour file is ~0.89 GB (six of these plus a 31 MB tail). Old-era average file is 1.27 GB.
@@ -50,9 +52,33 @@ benchmark:
       verified_from_index:
         compression: ZLIB
         compression_ratio: 27
-        on_disk_stripe_mib: 8.4
-        rows_per_stripe: 31000
-      stripe_size_note: 64 MiB is the uncompressed target. 8.4 MiB is that stripe after ZLIB. Do not set the writer stripe to 8.
+        on_disk_stripe_mib: 8.043
+        rows_per_stripe: 30902
+        source: orc_meta_result.txt
+        partition: 2026-06-28--09
+        orc_file_version: V_0_12
+        writer_identification: ORC_517 / ORC Java
+        row_index_stride: 10000
+        file_count: 7
+        total_rows: 19159061
+        total_file_bytes: 5341262459
+        raw_data_size_bytes: 144428311475
+        total_stripes: 620
+        avg_rows_per_stripe: 30902
+        avg_compressed_stripe_bytes: 8434171
+      stripe_size_note: 64 MiB is benchmark writer target, NOT confirmed by footer; observed compressed mean is 
+        8434171 bytes.
+    observed_profile_ref: observed-orc-profile.yaml
+    observed_file_sizes_bytes:
+    - 31395453
+    - 893366535
+    - 892172242
+    - 892729798
+    - 892347297
+    - 884051378
+    - 855199756
+    target_file_size_note: 912 MiB kept as generator setting; do not replace with seven-file mean skewed by a small
+      first-timestamp file.
   representations:
     PAIRS:
       transform: zip_native_parallel_arrays_as_ordered_struct_array
@@ -110,7 +136,8 @@ benchmark:
       module_dictionary: bench.module_dictionary
       epk_dictionary: bench.epk_dictionary
       partition_dates: bench.partition_dates
-      sm_uko_note: unused by the SM_UKO mix. module is constant, EPK comes from a file, partitions are chosen outside SQL.
+      sm_uko_note: unused by the SM_UKO mix. module is constant, EPK comes from a file, partitions are chosen 
+        outside SQL.
     epk_id_file:
       distinct_ids: 10800
       approx_kib: 216
@@ -218,7 +245,8 @@ benchmark:
   - id: PARTITIONING
     kind: rewrite
     factor: partition_columns
-    note: production is always hourly. The empty list is the control. SQL still has no time predicate; the runner passes the partition list.
+    note: production is always hourly. The empty list is the control. SQL still has no time predicate; the runner 
+      passes the partition list.
     values:
     - []
     - - key
@@ -241,7 +269,8 @@ benchmark:
   - id: FILE_SIZES
     kind: rewrite
     factor: target_file_size_mib
-    note: 912 is the median-hour file (~0.89 GB). 1300 is the old-era average file (1.27 GB). 256 is the previous contract.
+    note: 912 is the median-hour file (~0.89 GB). 1300 is the old-era average file (1.27 GB). 256 is the previous 
+      contract.
     values:
     - 256
     - 912
@@ -553,7 +582,8 @@ benchmark:
     - Q_USERLOGIN
     sla_gate: success_rate >= 0.95
     tie_break: session bloom > time-sorted hourly baseline
-    excluded_candidates: ZSTD (Hive side ORC 1.5.6 codec gap; Spark ZSTD kept; Hive ZSTD deferred until codec support)
+    excluded_candidates: ZSTD (Hive side ORC 1.5.6 codec gap; Spark ZSTD kept; Hive ZSTD deferred until codec 
+      support)
   execution_policy:
     layout_lifetime: materialized on prepare, cleaned after stage (except candidates / --keep-layouts)
     idempotency: '{hdfs_root}/state/*.done markers; resume never overwrites existing markers'
@@ -570,7 +600,8 @@ benchmark:
     warmup_per_query: 5
     measured_per_query: 30
     workload_mix_source: query_suite.workload_mix
-    measurement_note: each template is timed on its own. Mix weights score the combination; rare templates are still measured.
+    measurement_note: each template is timed on its own. Mix weights score the combination; rare templates are 
+      still measured.
     # Common profile fits about 9 apps on an idle pool (81 cores / 9). 25 and 50 do not fit.
     concurrency_levels:
     - 1
@@ -608,7 +639,7 @@ benchmark:
     - yarn_queue_delay_ms
     - executor_alloc_delay_ms
     - spark_runtime_ms
-    unavailable_metric_value: null
+    unavailable_metric_value:
     sla_success_threshold_ms: 7200000
     aspirational_optimized_latency_ms: 3000
   configuration_validation:
@@ -617,3 +648,38 @@ benchmark:
     require_identical_canonical_row_hash_across_variants: true
     require_physical_manifest_for_final_engine_comparison: true
     require_nested_parameter_alignment: true
+
+  # Optional independent profiling stage, distinct from production performance tests.
+  # Adding this declaration does not by itself implement runner/ConfigLoader integration.
+  profiling_stage:
+    enabled: false  # enable after implementing profiling runner support
+    source: profiling-suite.yaml
+    original_sql: spark_queries.sql
+    engine: SPARK_BASE
+    representation: RAW_ARRAY
+    use_original_hdfs_paths: true
+    groups:
+    - '1'
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'
+    - '7'
+    - '8'
+    - '9'
+    separate_from_workload_mix: true
+    validation:
+      compare_aggregates_per_query: true
+      compare_null_distributions: true
+      compare_parameter_cardinality: true
+      compare_epk_distribution: true
+      compare_partition_distributions: true
+      approximate_statistics_tolerance:       # calibrate; do not invent one
+      raw_row_hash_rule_not_applicable_to_aggregates: true
+      compare_with_observed_reference: true
+      do_not_assume_other_spark_queries_results_available: true
+    observed_profile_ref: observed-orc-profile.yaml
+  profiling_spark_settings:
+    spark.sql.sources.partitionColumnTypeInference.enabled: false
+    spark.sql.ansi.enabled: false

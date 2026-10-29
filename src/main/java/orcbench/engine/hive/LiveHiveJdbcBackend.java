@@ -1,6 +1,7 @@
 package orcbench.engine.hive;
 
 import orcbench.engine.ResultDigest;
+import orcbench.io.HdfsPaths;
 import orcbench.model.Models.HiveEnv;
 import orcbench.model.Models.LoadedConfig;
 
@@ -108,9 +109,13 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         Statement st = connection.createStatement();
         try {
             enableQuotedIdentifiers(st);
+            st.execute("CREATE DATABASE IF NOT EXISTS " + SchemaDdl.HIVE_DATABASE);
             for (Map.Entry<String, String> e : nameToLocation.entrySet()) {
-                st.execute("DROP TABLE IF EXISTS " + e.getKey());
-                st.execute(SchemaDdl.createReferenceTableSql(e.getKey(), e.getValue()));
+                String qualified = SchemaDdl.qualify(SchemaDdl.HIVE_DATABASE, e.getKey());
+                st.execute("DROP TABLE IF EXISTS " + qualified);
+                st.execute(SchemaDdl.createReferenceTableSql(qualified, e.getValue()));
+                // Fail here, once, if the session cannot see the table.
+                st.execute("DESCRIBE " + qualified);
             }
         } finally {
             st.close();
@@ -130,13 +135,58 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         // Default is "column", but a hive-site override of "none" leaves
         // backticks in the identifier text. Required for `__time` and mixed-case ORC names.
         st.execute("SET hive.support.quoted.identifiers=column");
+        // Tez prints HDFS_BYTES_READ into the statement log. A rejected SET must
+        // not fail the query: the byte field then stays null.
+        trySet(st, "hive.tez.exec.print.summary=true");
+        // Container reuse is not a private AM. It stops one slot from handing
+        // a dead container to the next statement on the same connection.
+        trySet(st, "tez.am.container.reuse.enabled=false");
+        trySet(st, "hive.prewarm.enabled=false");
+    }
+
+    private static void trySet(Statement st, String assignment) {
+        try {
+            st.execute("SET " + assignment);
+        } catch (Exception ignored) {
+            // Server may reject a non-runtime Tez key. Bytes and isolation then
+            // fall back to whatever the session already has.
+        }
+    }
+
+    /**
+     * HiveStatement.getQueryLog() is not on the compile classpath of every
+     * driver build. Reflect so a missing Hive JDBC class does not break Spark-only runs.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<String> readQueryLog(Statement st) {
+        List<String> lines = new ArrayList<String>();
+        if (st == null) {
+            return lines;
+        }
+        try {
+            java.lang.reflect.Method hasMore = st.getClass().getMethod("hasMoreLogs");
+            java.lang.reflect.Method getLog = st.getClass().getMethod("getQueryLog");
+            int guard = 0;
+            while (Boolean.TRUE.equals(hasMore.invoke(st)) && guard < 20) {
+                Object chunk = getLog.invoke(st);
+                if (chunk instanceof List) {
+                    for (Object line : (List<Object>) chunk) {
+                        if (line != null) {
+                            lines.add(line.toString());
+                        }
+                    }
+                }
+                guard++;
+            }
+        } catch (Exception ignored) {
+            // No operation log: hdfsBytesRead stays null.
+        }
+        return lines;
     }
 
     @Override
     public Long estimateOrcBytes(String layoutPath) {
-        // HDFS byte accounting is observational for Hive JDBC path in CP7;
-        // full FS stats belong with cluster metrics / CP8 reporting.
-        return null;
+        return HdfsPaths.sumFileBytes(layoutPath);
     }
 
     /**
@@ -157,7 +207,8 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
                 while (rs.next()) {
                     digest.add(canonicalRow(rs, cols));
                 }
-                return new QueryExecResult(new String[0], null, digest.count(), digest.hashHex());
+                Long bytes = TezCounterLog.sumHdfsBytesRead(readQueryLog(st));
+                return new QueryExecResult(new String[0], bytes, digest.count(), digest.hashHex());
             } finally {
                 rs.close();
             }

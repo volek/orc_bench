@@ -1,6 +1,7 @@
 package orcbench.metrics;
 
 import orcbench.io.ResultStore;
+import orcbench.engine.hive.TezCounterLog;
 import orcbench.model.Models.AggregateStats;
 import orcbench.model.Models.RunResult;
 
@@ -8,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -171,14 +173,23 @@ public final class MetricsStore {
     }
 
     public static List<AggregateStats> aggregate(List<RunResult> results, long slaThresholdMs) {
+        Set<String> poisoned = new HashSet<String>();
         Map<String, List<RunResult>> groups = new HashMap<String, List<RunResult>>();
         if (results != null) {
+            for (RunResult r : results) {
+                if (r != null && r.concurrency > 1
+                        && TezCounterLog.invalidatesLoadMeasurement(r.errorMessage)) {
+                    poisoned.add(groupKey(r));
+                }
+            }
             for (RunResult r : results) {
                 if (r.warmup || !"ok".equals(r.status)) {
                     continue;
                 }
-                String key = r.experimentId + "|" + r.variantLabel + "|" + r.engine + "|"
-                        + r.queryId + "|" + r.concurrency + "|" + r.cacheState;
+                String key = groupKey(r);
+                if (poisoned.contains(key)) {
+                    continue;
+                }
                 List<RunResult> bucket = groups.get(key);
                 if (bucket == null) {
                     bucket = new ArrayList<RunResult>();
@@ -254,6 +265,11 @@ public final class MetricsStore {
             }
         });
         return out;
+    }
+
+    static String groupKey(RunResult r) {
+        return r.experimentId + "|" + r.variantLabel + "|" + r.engine + "|"
+                + r.queryId + "|" + r.concurrency + "|" + r.cacheState;
     }
 
     public static double percentile(List<Double> sorted, double p) {

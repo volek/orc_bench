@@ -49,6 +49,22 @@ class MetricsStoreTest {
     }
 
     @Test
+    void omitsConcurrencyCellKilledBySharedTezAm() {
+        RunResult ok = sample(5000, "HIVE_TEZ_BASE");
+        ok.concurrency = 5;
+        ok.queryId = "Q_SESSION_EQ";
+        ok.engine = "hive_tez";
+        RunResult killed = sample(100, "HIVE_TEZ_BASE");
+        killed.concurrency = 5;
+        killed.queryId = "Q_SESSION_EQ";
+        killed.engine = "hive_tez";
+        killed.status = "error";
+        killed.errorMessage = "Dag received [DAG_TERMINATE, DAG_KILL] in RUNNING state";
+        List<AggregateStats> agg = MetricsStore.aggregate(Arrays.asList(ok, killed), 7200000L);
+        assertTrue(agg.isEmpty());
+    }
+
+    @Test
     void ranksBestOrc() {
         RunResult c = sample(2000, "C");
         c.hdfsBytesRead = 50L;

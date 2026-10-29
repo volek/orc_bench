@@ -71,6 +71,11 @@ class SchemaDdlTest {
     void referenceTableCarriesIdAndType() {
         String sql = SchemaDdl.createReferenceTableSql("module_dictionary", "/orc_test/S/refs/module_dictionary");
         assertTrue(sql.contains("CREATE EXTERNAL TABLE module_dictionary"), sql);
+        String qualified = SchemaDdl.createReferenceTableSql(
+                SchemaDdl.qualify("bench", "module_dictionary"),
+                "/orc_test/S/refs/module_dictionary");
+        assertTrue(qualified.contains("CREATE EXTERNAL TABLE bench.module_dictionary"), qualified);
+        assertFalse(qualified.contains("`bench.module_dictionary`"), qualified);
         assertTrue(sql.contains("(id STRING, type STRING)"), sql);
         assertTrue(sql.contains("LOCATION '/orc_test/S/refs/module_dictionary'"), sql);
     }

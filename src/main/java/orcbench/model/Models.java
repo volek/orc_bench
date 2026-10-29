@@ -147,9 +147,9 @@ public final class Models {
      */
     public static final class BestOrcRule {
         public String objectiveRaw =
-                "min p50 over {Q02, Q03, Q07_NARROW}";
+                "min p50 over {Q_SESSION_EQ}";
         public List<String> objectiveQueries =
-                new ArrayList<>(java.util.Arrays.asList("Q02", "Q03", "Q07_NARROW"));
+                new ArrayList<>(java.util.Arrays.asList("Q_SESSION_EQ"));
         public String objectiveStat = "p50";
         public String slaGateRaw = "success_rate >= 0.95";
         public double slaSuccessRateMin = 0.95;

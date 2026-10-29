@@ -32,9 +32,8 @@ public final class BestOrcSelector {
         Map<String, ExperimentInstance> layouts = indexLayouts(physicalLayouts);
         Set<String> objective = new HashSet<String>(effective.objectiveQueries);
         if (objective.isEmpty()) {
-            objective.add("Q02");
-            objective.add("Q03");
-            objective.add("Q07_NARROW");
+            // A missing objective must not resurrect the old 3s gate on Q07_NARROW.
+            objective.add("Q_SESSION_EQ");
         }
 
         Map<String, List<AggregateStats>> byCandidate = new HashMap<String, List<AggregateStats>>();
@@ -228,13 +227,19 @@ public final class BestOrcSelector {
                     || "baseline".equals(layout.kind)) {
                 return "baseline";
             }
+            // Empty sorting and empty partitions are one flat class.
+            // The experiment id MINMAX_SORT must not mark that class as sorted.
+            return "flat";
         }
         String id = head == null ? "" : nullSafe(head.experimentId).toUpperCase(Locale.ROOT);
         String var = head == null ? "" : nullSafe(head.variantLabel).toUpperCase(Locale.ROOT);
+        if (isEmptyLayoutLabel(var)) {
+            return "flat";
+        }
         if (id.contains("PARTITION") || var.contains("PARTITION") || var.contains("EVENT_DATE")) {
             return "partitioned";
         }
-        if (id.contains("SORT") || var.contains("SORT")) {
+        if ((id.contains("SORT") || var.contains("SORT")) && !isEmptyLayoutLabel(var)) {
             return "sorted";
         }
         if (id.contains("RAW_ARRAY_BASE") || "BASELINE".equals(id)) {
@@ -243,7 +248,16 @@ public final class BestOrcSelector {
         return "other";
     }
 
-    /** Lower is better: partitioned(0) > sorted(1) > baseline(2) > other(3). */
+    /** An empty {@code sorting=[]} or {@code partition_columns=[]} label is not that factor. */
+    private static boolean isEmptyLayoutLabel(String variant) {
+        if (variant == null) {
+            return false;
+        }
+        String v = variant.replace(" ", "");
+        return v.contains("=[]") || v.contains("=()");
+    }
+
+    /** Lower is better: partitioned(0) > sorted(1) > baseline(2) > flat(3) > other(4). */
     private static int tieRank(String tieClass) {
         if ("partitioned".equals(tieClass)) {
             return 0;
@@ -254,7 +268,10 @@ public final class BestOrcSelector {
         if ("baseline".equals(tieClass)) {
             return 2;
         }
-        return 3;
+        if ("flat".equals(tieClass)) {
+            return 3;
+        }
+        return 4;
     }
 
     private static boolean safeEq(String a, String b) {

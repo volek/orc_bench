@@ -1,0 +1,12 @@
+# Optional overrides of environment.yaml; prod_common is the current active sizing profile.
+# Copy to environment.local.yaml and pass via --env-override.
+# This is NOT an instruction to switch to layout_probe 10 x 4 x 16 GiB.
+environment:
+  spark:
+    deploy_mode: cluster
+    executor_instances: 4
+    executor_cores: 2
+    executor_memory_gib: 3
+    executor_memory_overhead_mib: 512
+    driver_cores: 1
+    driver_memory_gib: 2

@@ -21,6 +21,7 @@ import orcbench.model.Models.RunPhaseResult;
 import orcbench.model.Models.RunResult;
 import orcbench.preflight.PreflightProbe;
 import orcbench.preflight.PreflightReportWriter;
+import orcbench.report.FinalComparisonRunner;
 import orcbench.report.ReportPhase;
 
 import java.time.Instant;
@@ -166,6 +167,18 @@ public final class Main {
             boolean includeFinal = phases.contains("final");
             if (sharedRunId == null || sharedRunId.trim().isEmpty()) {
                 sharedRunId = cli.runId;
+            }
+            if (includeFinal && !cli.dryRun) {
+                collectedResults = FinalComparisonRunner.execute(
+                        cfg,
+                        plan,
+                        samples,
+                        cli.scale,
+                        sharedRunId,
+                        cli.resultsDir,
+                        cli.metricsJsonl,
+                        collectedResults,
+                        cli.mockRun);
             }
             if ((sharedRunId == null || sharedRunId.trim().isEmpty())
                     && (cli.metricsJsonl == null || cli.metricsJsonl.trim().isEmpty())

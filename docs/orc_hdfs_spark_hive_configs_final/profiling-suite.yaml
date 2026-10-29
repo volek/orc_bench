@@ -1,0 +1,607 @@
+# Generated from spark_queries.sql; SQL unchanged. Runner support must be implemented separately.
+profiling_suite:
+  id: sm_uko_original_spark_profiling
+  purpose: reproduce_original_orc_index_profiling_separately_from_production_workload
+  source_file: spark_queries.sql
+  dialect: spark_3_2
+  execution_support: requires_runner_extension; not loaded by existing ConfigLoader
+  source_query_fidelity: SQL statement bodies preserved from spark_queries.sql; original source included
+  placeholders:
+    INDEX_PATH: original_index_hdfs_directory
+    PARTITION_KEY: selected_hour_partition
+    RANGE_KEYS: explicit_partition_glob
+  partition_scope:
+    single_partition_sections:
+    - '1'
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'
+    - '7'
+    - '8'
+    cross_partition_sections:
+    - '9'
+    external_partition_list_for_query_suite: separate_mode
+  session_settings:
+    spark.sql.sources.partitionColumnTypeInference.enabled: false
+    spark.sql.ansi.enabled: false
+  setup_statements:
+  - id: PROFILE_0_01
+    kind: set
+    section: '0'
+    source_line: 39
+    sql: SET spark.sql.sources.partitionColumnTypeInference.enabled=false;
+  - id: PROFILE_0_02
+    kind: set
+    section: '0'
+    source_line: 40
+    sql: SET spark.sql.ansi.enabled=false;
+  - id: PROFILE_0_03
+    kind: view
+    section: '0'
+    source_line: 43
+    sql: 'CREATE OR REPLACE TEMPORARY VIEW part_raw USING orc
+
+      OPTIONS (path ''<INDEX_PATH>/key=<PARTITION_KEY>'', basePath ''<INDEX_PATH>'');'
+  - id: PROFILE_0_04
+    kind: view
+    section: '0'
+    source_line: 46
+    sql: "CREATE OR REPLACE TEMPORARY VIEW p AS\nSELECT *,\n       input_file_name() AS src_file,\n       length(to_json(struct(*)))
+      AS row_json_len,\n       CASE WHEN array_position(paramName, 'EPK_ID') > 0\n            THEN paramValue[CAST(array_position(paramName,
+      'EPK_ID') - 1 AS INT)] END AS epk\nFROM part_raw;"
+  - id: PROFILE_0_05
+    kind: view
+    section: '0'
+    source_line: 57
+    sql: 'CREATE OR REPLACE TEMPORARY VIEW pp AS
+
+      SELECT name, module, pos, pn AS param_name, paramValue[pos] AS pv, paramOldValue[pos] AS pov
+
+      FROM p LATERAL VIEW posexplode(paramName) t AS pos, pn;'
+  - id: PROFILE_9_01
+    kind: view
+    section: '9'
+    source_line: 447
+    sql: 'CREATE OR REPLACE TEMPORARY VIEW range_raw USING orc
+
+      OPTIONS (path ''<INDEX_PATH>/key=<RANGE_KEYS>'', basePath ''<INDEX_PATH>'');'
+  - id: PROFILE_9_02
+    kind: view
+    section: '9'
+    source_line: 450
+    sql: "CREATE OR REPLACE TEMPORARY VIEW pr AS\nSELECT key,\n       CASE WHEN array_position(paramName, 'EPK_ID') >
+      0\n            THEN paramValue[CAST(array_position(paramName, 'EPK_ID') - 1 AS INT)] END AS epk\nFROM range_raw;"
+  queries:
+  - id: PROFILE_1_01
+    kind: query
+    section: '1'
+    source_line: 69
+    sql: "SELECT count(*)                                AS rows_total,\n       count(DISTINCT src_file)            \
+      \    AS orc_files,\n       min(createdAt)                          AS min_createdAt,\n       max(createdAt)   \
+      \                       AS max_createdAt,\n       min(`__time`)                           AS min_time,\n      \
+      \ max(`__time`)                           AS max_time,\n       approx_count_distinct(name)             AS distinct_names,\n\
+      \       approx_count_distinct(module)           AS distinct_modules,\n       approx_count_distinct(userLogin) \
+      \       AS distinct_userLogin,\n       approx_count_distinct(userName)         AS distinct_userName,\n       approx_count_distinct(session)\
+      \          AS distinct_session,\n       approx_count_distinct(userNode)         AS distinct_userNode,\n       approx_count_distinct(metamodelVersion)
+      AS distinct_metamodelVersion,\n       approx_count_distinct(epk)              AS distinct_epk,\n       approx_count_distinct(archiveInternalId)
+      AS distinct_archiveInternalId\nFROM p;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_1_02
+    kind: query
+    section: '1'
+    source_line: 87
+    sql: "SELECT count(*)                                                     AS rows_total,\n       sum(IF(userLogin
+      IS NULL, 1, 0))                             AS null_userLogin,\n       sum(IF(createdAt IS NULL, 1, 0))       \
+      \                      AS null_createdAt,\n       sum(IF(session IS NULL, 1, 0))                              \
+      \ AS null_session,\n       sum(IF(userNode IS NULL, 1, 0))                              AS null_userNode,\n   \
+      \    sum(IF(module IS NULL, 1, 0))                                AS null_module,\n       sum(IF(name IS NULL,
+      1, 0))                                  AS null_name,\n       sum(IF(userName IS NULL, 1, 0))                 \
+      \             AS null_userName,\n       sum(IF(metamodelVersion IS NULL, 1, 0))                      AS null_metamodelVersion,\n\
+      \       sum(IF(tags IS NULL, 1, 0))                                  AS null_tags,\n       sum(IF(size(tags) =
+      0, 1, 0))                                AS empty_tags,\n       sum(IF(paramName IS NULL, 1, 0))              \
+      \               AS null_paramName,\n       sum(IF(size(paramName) = 0, 1, 0))                           AS empty_paramName,\n\
+      \       sum(IF(paramOldValue IS NULL, 1, 0))                         AS null_paramOldValue,\n       sum(IF(size(paramOldValue)
+      = 0, 1, 0))                       AS empty_paramOldValue,\n       sum(IF(size(paramName) <> size(paramValue), 1,
+      0))           AS name_value_size_mismatch,\n       sum(IF(size(paramOldValue) > 0 AND size(paramName) <> size(paramOldValue),
+      1, 0)) AS name_oldvalue_size_mismatch,\n       sum(IF(epk IS NULL, 1, 0))                                   AS
+      without_epk,\n       sum(IF(archiveInternalId IS NULL, 1, 0))                     AS null_archiveInternalId,\n\
+      \       sum(IF(archiveInsertTime IS NULL, 1, 0))                     AS null_archiveInsertTime,\n       sum(IF(`__time`
+      IS NULL, 1, 0))                              AS null_time\nFROM p;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_1_03
+    kind: query
+    section: '1'
+    source_line: 111
+    sql: "SELECT percentile_approx(row_json_len, array(0.1, 0.5, 0.9, 0.99, 0.999)) AS row_json_len_p10_50_90_99_999,\n\
+      \       max(row_json_len)                                                AS row_json_len_max,\n       avg(row_json_len)\
+      \                                                AS row_json_len_avg\nFROM p;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_1_04
+    kind: query
+    section: '1'
+    source_line: 117
+    sql: "SELECT count(*)                                              AS files,\n       min(cnt)                   \
+      \                           AS rows_min,\n       percentile_approx(cnt, array(0.1, 0.5, 0.9))          AS rows_p10_50_90,\n\
+      \       max(cnt)                                              AS rows_max,\n       avg(cnt)                   \
+      \                           AS rows_avg\nFROM (SELECT src_file, count(*) AS cnt FROM p GROUP BY src_file) t;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_2_01
+    kind: query
+    section: '2'
+    source_line: 129
+    sql: 'SELECT name, count(*) AS cnt, round(100 * count(*) / sum(count(*)) OVER (), 4) AS pct
+
+      FROM p
+
+      GROUP BY name
+
+      ORDER BY cnt DESC;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_2_02
+    kind: query
+    section: '2'
+    source_line: 135
+    sql: 'SELECT module, count(*) AS cnt, round(100 * count(*) / sum(count(*)) OVER (), 4) AS pct
+
+      FROM p
+
+      GROUP BY module
+
+      ORDER BY cnt DESC;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_2_03
+    kind: query
+    section: '2'
+    source_line: 141
+    sql: "SELECT module, name,\n       count(*)                                            AS cnt,\n       round(100
+      * count(*) / sum(count(*)) OVER (), 4)    AS pct,\n       min(size(paramName))                                AS
+      params_min,\n       percentile_approx(size(paramName), 0.5)             AS params_p50,\n       max(size(paramName))\
+      \                                AS params_max,\n       sum(IF(epk IS NOT NULL, 1, 0))                      AS
+      with_epk,\n       sum(IF(size(paramOldValue) > 0, 1, 0))              AS with_old_values,\n       avg(row_json_len)\
+      \                     AS avg_row_json_len\nFROM p\nGROUP BY module, name\nORDER BY cnt DESC;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_3_01
+    kind: query
+    section: '3'
+    source_line: 159
+    sql: "SELECT percentile_approx(size(paramName), array(0.1, 0.5, 0.9, 0.99, 0.999))  AS paramName_size_p10_50_90_99_999,\n\
+      \       max(size(paramName))                                                  AS paramName_size_max,\n       avg(size(paramName))\
+      \                                                  AS paramName_size_avg,\n       percentile_approx(size(paramOldValue),
+      array(0.5, 0.9, 0.99))         AS paramOldValue_size_p50_90_99,\n       max(size(paramOldValue))              \
+      \                                AS paramOldValue_size_max,\n       percentile_approx(size(tags), array(0.5, 0.9,
+      0.99))                  AS tags_size_p50_90_99,\n       max(size(tags))                                       \
+      \                AS tags_size_max\nFROM p;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_3_02
+    kind: query
+    section: '3'
+    source_line: 169
+    sql: "SELECT CASE WHEN s <= 10 THEN lpad(CAST(s AS STRING), 5, '0')\n            WHEN s <= 50 THEN '00011-00050'\n\
+      \            WHEN s <= 100 THEN '00051-00100'\n            WHEN s <= 500 THEN '00101-00500'\n            WHEN s
+      <= 1000 THEN '00501-01000'\n            ELSE '01001+' END AS params_count_bucket,\n       count(*) AS cnt\nFROM
+      (SELECT size(paramName) AS s FROM p) t\nGROUP BY 1\nORDER BY 1;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_3_03
+    kind: query
+    section: '3'
+    source_line: 181
+    sql: "SELECT percentile_approx(total_len, array(0.1, 0.5, 0.9, 0.99, 0.999)) AS values_total_len_p10_50_90_99_999,\n\
+      \       max(total_len)                                                 AS values_total_len_max\nFROM (SELECT aggregate(paramValue,
+      0L, (acc, x) -> acc + coalesce(length(x), 0)) AS total_len FROM p) t;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_3_04
+    kind: query
+    section: '3'
+    source_line: 186
+    sql: "SELECT param_name,\n       count(*)                                                AS occurrences,\n      \
+      \ round(100 * count(*) / (SELECT count(*) FROM p), 4)     AS pct_of_events,\n       approx_count_distinct(pv) \
+      \                              AS distinct_values,\n       sum(IF(pv IS NULL, 1, 0))                          \
+      \     AS null_values,\n       sum(IF(pv = '', 1, 0))                                  AS empty_values,\n      \
+      \ min(length(pv))                                         AS len_min,\n       percentile_approx(length(pv), array(0.5,
+      0.9, 0.99))    AS len_p50_90_99,\n       max(length(pv))                                         AS len_max,\n\
+      \       avg(length(pv))                                         AS len_avg,\n       sum(IF(pov IS NOT NULL, 1,
+      0))                          AS with_old_value,\n       percentile_approx(pos + 1, array(0.5, 0.9))           \
+      \  AS position_p50_90,\n       sum(IF(pv RLIKE '^[0-9]+$', 1, 0))                      AS numeric_values,\n   \
+      \    sum(IF(pv RLIKE '^\\\\s*[\\\\[{]', 1, 0))                   AS json_like_values\nFROM pp\nGROUP BY param_name\n\
+      ORDER BY occurrences DESC;"
+    requires_views:
+    - part_raw
+    - p
+    - pp
+  - id: PROFILE_3_05
+    kind: query
+    section: '3'
+    source_line: 205
+    sql: "SELECT CASE WHEN pv IS NULL          THEN '0) null'\n            WHEN length(pv) < 100    THEN '1) < 100'\n\
+      \            WHEN length(pv) < 1000   THEN '2) 100 - 1K'\n            WHEN length(pv) < 10000  THEN '3) 1K - 10K'\n\
+      \            WHEN length(pv) < 100000 THEN '4) 10K - 100K'\n            WHEN length(pv) < 1000000 THEN '5) 100K
+      - 1M'\n            ELSE '6) >= 1M' END                   AS value_len_bucket,\n       count(*)                \
+      \                    AS values_cnt,\n       sum(length(pv))                             AS chars_total,\n     \
+      \  approx_count_distinct(param_name)           AS distinct_params\nFROM pp\nGROUP BY 1\nORDER BY 1;"
+    requires_views:
+    - part_raw
+    - p
+    - pp
+  - id: PROFILE_3_06
+    kind: query
+    section: '3'
+    source_line: 220
+    sql: "SELECT param_name,\n       count(*)                                                        AS values_cnt,\n\
+      \       sum(IF(length(pv) < 100, 1, 0))                                 AS lt_100,\n       sum(IF(length(pv) >=
+      100 AND length(pv) < 1000, 1, 0))          AS `100_1K`,\n       sum(IF(length(pv) >= 1000 AND length(pv) < 10000,
+      1, 0))        AS `1K_10K`,\n       sum(IF(length(pv) >= 10000 AND length(pv) < 100000, 1, 0))      AS `10K_100K`,\n\
+      \       sum(IF(length(pv) >= 100000 AND length(pv) < 1000000, 1, 0))    AS `100K_1M`,\n       sum(IF(length(pv)
+      >= 1000000, 1, 0))                            AS ge_1M,\n       sum(length(pv))                               \
+      \                  AS chars_total,\n       max(length(pv))                                                 AS len_max\n\
+      FROM pp\nGROUP BY param_name\nORDER BY chars_total DESC;"
+    requires_views:
+    - part_raw
+    - p
+    - pp
+  - id: PROFILE_3_07
+    kind: query
+    section: '3'
+    source_line: 235
+    sql: "SELECT CASE WHEN total_len < 1000    THEN '1) < 1K'\n            WHEN total_len < 10000   THEN '2) 1K - 10K'\n\
+      \            WHEN total_len < 100000  THEN '3) 10K - 100K'\n            WHEN total_len < 1000000 THEN '4) 100K
+      - 1M'\n            ELSE '5) >= 1M' END                        AS event_values_len_bucket,\n       count(*)    \
+      \                                     AS events_cnt,\n       percentile_approx(params_cnt, array(0.5, 0.9))   AS
+      params_cnt_p50_90\nFROM (SELECT size(paramName) AS params_cnt,\n             aggregate(paramValue, 0L, (acc, x)
+      -> acc + coalesce(length(x), 0)) AS total_len\n      FROM p) t\nGROUP BY 1\nORDER BY 1;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_3_08
+    kind: query
+    section: '3'
+    source_line: 250
+    sql: "SELECT param_name,\n       count(*)                                                                     AS
+      values_cnt,\n       sum(IF(pv IS NULL OR pv = '', 1, 0))                                         AS null_or_empty,\n\
+      \       sum(IF(pv RLIKE '^[0-9]+$', 1, 0))                                           AS digits,\n       sum(IF(pv
+      NOT RLIKE '^[0-9]+$' AND lower(pv) = upper(pv) AND pv <> '', 1, 0)) AS no_letters,\n       sum(IF(lower(pv) <>
+      upper(pv), 1, 0))                                        AS letters,\n       sum(IF(pv RLIKE '^\\\\s*[\\\\[{]',
+      1, 0))                                     AS json_like\nFROM pp\nGROUP BY param_name\nORDER BY values_cnt DESC;"
+    requires_views:
+    - part_raw
+    - p
+    - pp
+  - id: PROFILE_3_09
+    kind: query
+    section: '3'
+    source_line: 262
+    sql: "SELECT param_name, count(*) AS events_with_duplicates\nFROM (SELECT archiveInternalId, param_name, count(*)
+      AS c\n      FROM (SELECT archiveInternalId, pn AS param_name FROM p LATERAL VIEW explode(paramName) t AS pn) x\n\
+      \      GROUP BY archiveInternalId, param_name\n      HAVING count(*) > 1) d\nGROUP BY param_name\nORDER BY events_with_duplicates
+      DESC\nLIMIT 100;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_3_10
+    kind: query
+    section: '3'
+    source_line: 273
+    sql: "SELECT module, name, param_name,\n       count(*)                                    AS occurrences,\n    \
+      \   approx_count_distinct(pv)                   AS distinct_values,\n       percentile_approx(length(pv), 0.5)\
+      \          AS len_p50,\n       max(length(pv))                             AS len_max\nFROM pp\nGROUP BY module,
+      name, param_name\nORDER BY occurrences DESC\nLIMIT 5000;"
+    requires_views:
+    - part_raw
+    - p
+    - pp
+  - id: PROFILE_3_11
+    kind: query
+    section: '3'
+    source_line: 284
+    sql: "SELECT name,\n       approx_count_distinct(concat_ws(',', array_sort(paramName))) AS distinct_param_sets,\n\
+      \       count(*)                                                     AS cnt\nFROM p\nGROUP BY name\nORDER BY cnt
+      DESC;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_01
+    kind: query
+    section: '4'
+    source_line: 296
+    sql: "SELECT count(*)                                                                   AS rows_total,\n       sum(IF(epk
+      IS NOT NULL, 1, 0))                                             AS rows_with_epk,\n       approx_count_distinct(epk)\
+      \                                                 AS distinct_epk,\n       percentile_approx(array_position(paramName,
+      'EPK_ID'), array(0.5, 0.9, 0.99)) AS epk_position_p50_90_99,\n       max(array_position(paramName, 'EPK_ID')) \
+      \                                  AS epk_position_max,\n       percentile_approx(length(epk), array(0.01, 0.5,
+      0.99))                     AS epk_len_p1_50_99,\n       sum(IF(epk RLIKE '^[0-9]+$', 1, 0))                   \
+      \                     AS epk_numeric\nFROM p;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_02
+    kind: query
+    section: '4'
+    source_line: 306
+    sql: "SELECT count(*)                                                       AS distinct_epk,\n       min(cnt)   \
+      \                                                    AS events_min,\n       percentile_approx(cnt, array(0.5, 0.75,
+      0.9, 0.99, 0.999, 0.9999)) AS events_p50_75_90_99_999_9999,\n       max(cnt)                                  \
+      \                     AS events_max,\n       avg(cnt)                                                       AS
+      events_avg\nFROM (SELECT epk, count(*) AS cnt FROM p WHERE epk IS NOT NULL GROUP BY epk) t;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_03
+    kind: query
+    section: '4'
+    source_line: 314
+    sql: "SELECT CASE WHEN cnt = 1 THEN '000001'\n            WHEN cnt <= 5 THEN '000002-5'\n            WHEN cnt <=
+      10 THEN '000006-10'\n            WHEN cnt <= 50 THEN '000011-50'\n            WHEN cnt <= 100 THEN '000051-100'\n\
+      \            WHEN cnt <= 1000 THEN '000101-1000'\n            WHEN cnt <= 10000 THEN '001001-10000'\n         \
+      \   ELSE '010001+' END AS events_per_epk,\n       count(*) AS epk_cnt,\n       sum(cnt) AS events\nFROM (SELECT
+      epk, count(*) AS cnt FROM p WHERE epk IS NOT NULL GROUP BY epk) t\nGROUP BY 1\nORDER BY 1;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_04
+    kind: query
+    section: '4'
+    source_line: 329
+    sql: "SELECT cnt, distinct_names, distinct_modules\nFROM (SELECT epk, count(*) AS cnt, count(DISTINCT name) AS distinct_names,
+      count(DISTINCT module) AS distinct_modules\n      FROM p WHERE epk IS NOT NULL GROUP BY epk) t\nORDER BY cnt DESC\n\
+      LIMIT 50;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_05
+    kind: query
+    section: '4'
+    source_line: 336
+    sql: 'SELECT percentile_approx(n, array(0.5, 0.9, 0.99)) AS names_per_epk_p50_90_99, max(n) AS names_per_epk_max
+
+      FROM (SELECT epk, count(DISTINCT name) AS n FROM p WHERE epk IS NOT NULL GROUP BY epk) t;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_06
+    kind: query
+    section: '4'
+    source_line: 340
+    sql: 'SELECT name, count(*) AS cnt, sum(IF(epk IS NOT NULL, 1, 0)) AS with_epk
+
+      FROM p
+
+      GROUP BY name
+
+      ORDER BY cnt DESC;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_07
+    kind: query
+    section: '4'
+    source_line: 346
+    sql: 'SELECT percentile_approx(n, array(0.5, 0.9, 0.99)) AS epk_per_login_p50_90_99, max(n) AS epk_per_login_max
+
+      FROM (SELECT userLogin, count(DISTINCT epk) AS n FROM p WHERE epk IS NOT NULL GROUP BY userLogin) t;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_4_08
+    kind: query
+    section: '4'
+    source_line: 349
+    sql: 'SELECT percentile_approx(n, array(0.5, 0.9, 0.99)) AS login_per_epk_p50_90_99, max(n) AS login_per_epk_max
+
+      FROM (SELECT epk, count(DISTINCT userLogin) AS n FROM p WHERE epk IS NOT NULL GROUP BY epk) t;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_01
+    kind: query
+    section: '5'
+    source_line: 357
+    sql: SELECT metamodelVersion, count(*) AS cnt FROM p GROUP BY metamodelVersion ORDER BY cnt DESC;
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_02
+    kind: query
+    section: '5'
+    source_line: 359
+    sql: SELECT userNode, count(*) AS cnt FROM p GROUP BY userNode ORDER BY cnt DESC LIMIT 200;
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_03
+    kind: query
+    section: '5'
+    source_line: 361
+    sql: SELECT tag, count(*) AS cnt FROM p LATERAL VIEW explode(tags) t AS tag GROUP BY tag ORDER BY cnt DESC 
+      LIMIT 200;
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_04
+    kind: query
+    section: '5'
+    source_line: 364
+    sql: "SELECT 'userLogin' AS field, count(*) AS distinct_values,\n       percentile_approx(cnt, array(0.5, 0.9, 0.99,
+      0.999)) AS events_per_value_p50_90_99_999, max(cnt) AS max_events,\n       percentile_approx(len, array(0.5, 0.99))
+      AS len_p50_99\nFROM (SELECT userLogin AS v, count(*) AS cnt, max(length(userLogin)) AS len FROM p GROUP BY userLogin)
+      t\nUNION ALL\nSELECT 'userName', count(*), percentile_approx(cnt, array(0.5, 0.9, 0.99, 0.999)), max(cnt), percentile_approx(len,
+      array(0.5, 0.99))\nFROM (SELECT userName AS v, count(*) AS cnt, max(length(userName)) AS len FROM p GROUP BY userName)
+      t\nUNION ALL\nSELECT 'session', count(*), percentile_approx(cnt, array(0.5, 0.9, 0.99, 0.999)), max(cnt), percentile_approx(len,
+      array(0.5, 0.99))\nFROM (SELECT session AS v, count(*) AS cnt, max(length(session)) AS len FROM p GROUP BY session)
+      t\nUNION ALL\nSELECT 'archiveInternalId', count(*), percentile_approx(cnt, array(0.5, 0.9, 0.99, 0.999)), max(cnt),
+      percentile_approx(len, array(0.5, 0.99))\nFROM (SELECT archiveInternalId AS v, count(*) AS cnt, max(length(archiveInternalId))
+      AS len FROM p GROUP BY archiveInternalId) t;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_05
+    kind: query
+    section: '5'
+    source_line: 379
+    sql: 'SELECT percentile_approx(n, array(0.5, 0.9, 0.99)) AS sessions_per_login_p50_90_99, max(n) AS sessions_per_login_max
+
+      FROM (SELECT userLogin, count(DISTINCT session) AS n FROM p GROUP BY userLogin) t;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_06
+    kind: query
+    section: '5'
+    source_line: 382
+    sql: 'SELECT userNode, count(DISTINCT userLogin) AS logins, count(DISTINCT session) AS sessions, count(*) AS cnt
+
+      FROM p GROUP BY userNode ORDER BY cnt DESC LIMIT 100;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_5_07
+    kind: query
+    section: '5'
+    source_line: 385
+    sql: 'SELECT module, count(DISTINCT userLogin) AS logins, count(DISTINCT userNode) AS nodes, count(DISTINCT metamodelVersion)
+      AS versions
+
+      FROM p GROUP BY module ORDER BY logins DESC;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_6_01
+    kind: query
+    section: '6'
+    source_line: 393
+    sql: 'SELECT date_format(createdAt, ''yyyy-MM-dd HH'') AS hh, count(*) AS cnt
+
+      FROM p GROUP BY 1 ORDER BY 1;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_6_02
+    kind: query
+    section: '6'
+    source_line: 397
+    sql: "SELECT sum(IF(`__time` = createdAt, 1, 0))                                                     AS time_eq_createdAt,\n\
+      \       percentile_approx(unix_timestamp(`__time`) - unix_timestamp(createdAt), array(0.01, 0.5, 0.99)) AS time_minus_created_sec_p1_50_99,\n\
+      \       percentile_approx(unix_timestamp(archiveInsertTime) - unix_timestamp(createdAt), array(0.5, 0.9, 0.99))
+      AS insert_lag_sec_p50_90_99,\n       max(unix_timestamp(archiveInsertTime) - unix_timestamp(createdAt))       \
+      \                AS insert_lag_sec_max\nFROM p;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_6_03
+    kind: query
+    section: '6'
+    source_line: 405
+    sql: "SELECT sum(IF(date_format(`__time`, f) <> k, 1, 0))           AS time_outside_partition,\n       sum(IF(date_format(createdAt,
+      f) <> k, 1, 0))          AS createdAt_outside_partition,\n       sum(IF(date_format(archiveInsertTime, f) <> k,
+      1, 0))  AS insertTime_outside_partition,\n       count(*)                                               AS rows_total\n\
+      FROM p\nCROSS JOIN (SELECT '<PARTITION_KEY>' AS k,\n                   IF(length('<PARTITION_KEY>') <= 11, 'yyyy-MM--dd',
+      'yyyy-MM-dd--HH') AS f) pk;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_7_01
+    kind: query
+    section: '7'
+    source_line: 418
+    sql: 'SELECT percentile_approx(files, array(0.5, 0.9, 0.99)) AS files_per_epk_p50_90_99, max(files) AS files_per_epk_max
+
+      FROM (SELECT epk, count(DISTINCT src_file) AS files FROM p WHERE epk IS NOT NULL GROUP BY epk) t;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_7_02
+    kind: query
+    section: '7'
+    source_line: 421
+    sql: 'SELECT name, count(DISTINCT src_file) AS files, count(*) AS cnt
+
+      FROM p GROUP BY name ORDER BY cnt DESC LIMIT 50;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_7_03
+    kind: query
+    section: '7'
+    source_line: 425
+    sql: "SELECT percentile_approx(span_sec, array(0.1, 0.5, 0.9)) AS file_time_span_sec_p10_50_90\nFROM (SELECT src_file,
+      unix_timestamp(max(`__time`)) - unix_timestamp(min(`__time`)) AS span_sec\n      FROM p GROUP BY src_file) t;"
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_8_01
+    kind: query
+    section: '8'
+    source_line: 434
+    sql: 'SELECT percentile_approx(cnt, array(0.5, 0.99)) AS rows_returned_p50_99, max(cnt) AS rows_returned_max
+
+      FROM (SELECT epk, count(*) AS cnt FROM p WHERE epk IS NOT NULL GROUP BY epk) t;'
+    requires_views:
+    - part_raw
+    - p
+  - id: PROFILE_9_03
+    kind: query
+    section: '9'
+    source_line: 456
+    sql: "SELECT count(*)                                                AS distinct_epk_in_period,\n       percentile_approx(parts,
+      array(0.5, 0.9, 0.99))        AS partitions_per_epk_p50_90_99,\n       max(parts)                             \
+      \                 AS partitions_per_epk_max,\n       percentile_approx(cnt, array(0.5, 0.9, 0.99, 0.999))   AS
+      events_per_epk_in_period_p50_90_99_999,\n       max(cnt)                                                AS events_per_epk_in_period_max\n\
+      FROM (SELECT epk, count(DISTINCT key) AS parts, count(*) AS cnt FROM pr WHERE epk IS NOT NULL GROUP BY epk) t;"
+    requires_views:
+    - range_raw
+    - pr
+  - id: PROFILE_9_04
+    kind: query
+    section: '9'
+    source_line: 464
+    sql: 'SELECT key, approx_count_distinct(epk) AS distinct_epk, count(*) AS cnt
+
+      FROM pr GROUP BY key ORDER BY key;'
+    requires_views:
+    - range_raw
+    - pr
+  validation:
+    mode: aggregate_results_per_query
+    approximate_aggregates: compare_with_documented_tolerances_after_calibration
+    no_row_hash_equivalence_for_aggregates: true
+    compare_source_and_synthetic_separately: true
+  observed_profile_ref: observed-orc-profile.yaml
+  observed_reference_validation:
+    enabled: false
+    reason: Requires runner extension; available observations cover single 2026-06-28--09 partition only
+    compare_types:
+    - row_count
+    - null_distribution
+    - array_lengths
+    - orc_file_manifest
+    - schema_order
+    - approximate_distinct_with_calibrated_tolerance
+    exact_metrics_without_full_source_output:
+    - row_count
+    - orc_file_manifest
+    - column_null_counts
+    missing_profiles:
+    - duplicate_param_names
+    - EPK position/distribution
+    - rowwise timestamp alignment
+    - physical ordering

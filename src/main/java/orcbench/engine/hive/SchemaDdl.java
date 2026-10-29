@@ -14,6 +14,8 @@ import java.util.Set;
  * {@code CREATE EXTERNAL TABLE … STORED AS ORC} statements.
  */
 public final class SchemaDdl {
+    /** Metastore database the JDBC session must see. Contract: hive_registration.database. */
+    public static final String HIVE_DATABASE = "bench";
     /**
      * ORC field names Hive would fold to lowercase if left unquoted.
      * The fold breaks reads: the file column is {@code userLogin}, the
@@ -101,9 +103,33 @@ public final class SchemaDdl {
      */
     public static String createReferenceTableSql(String table, String location) {
         String safeLocation = location == null ? "" : location.replace("'", "");
-        return "CREATE EXTERNAL TABLE " + quoteHiveIdent(table)
+        return "CREATE EXTERNAL TABLE " + qualifiedOrQuoted(table)
                 + " (id STRING, type STRING)\nSTORED AS ORC\nLOCATION '"
                 + safeLocation + "'\n";
+    }
+
+    /**
+     * {@code bench.module_dictionary}: each segment is quoted only when Hive
+     * would fold or reject it. A single {@code quoteHiveIdent} on the whole
+     * string would wrap the dot.
+     */
+    public static String qualify(String database, String table) {
+        if (database == null || database.isEmpty()) {
+            return qualifiedOrQuoted(table);
+        }
+        return qualifiedOrQuoted(database) + "." + qualifiedOrQuoted(table);
+    }
+
+    static String qualifiedOrQuoted(String name) {
+        if (name == null || name.isEmpty()) {
+            return name;
+        }
+        int dot = name.indexOf('.');
+        if (dot > 0 && dot < name.length() - 1 && name.indexOf('.', dot + 1) < 0) {
+            return quoteHiveIdent(name.substring(0, dot)) + "."
+                    + quoteHiveIdent(name.substring(dot + 1));
+        }
+        return quoteHiveIdent(name);
     }
 
     /**

@@ -33,7 +33,9 @@ class ReportWriterTest {
         List<RunResult> results = MetricsStore.readJsonl(
                 Paths.get("src/test/resources/fixtures/cp8/metrics.jsonl").toString());
         List<AggregateStats> agg = MetricsStore.aggregate(results, 3000L);
-        BestOrcChoice best = BestOrcSelector.select(agg, new orcbench.model.Models.BestOrcRule(), null);
+        orcbench.model.Models.BestOrcRule rule = new orcbench.model.Models.BestOrcRule();
+        rule.objectiveQueries = Arrays.asList("Q02", "Q03", "Q07_NARROW");
+        BestOrcChoice best = BestOrcSelector.select(agg, rule, null);
 
         CapabilityReport cap = new CapabilityReport();
         cap.capabilities.put("hive_jdbc", true);

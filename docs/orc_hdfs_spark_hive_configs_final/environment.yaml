@@ -59,6 +59,10 @@ environment:
     pool_vcores: 84
     pool_memory_gb: 270
   spark:
+    # Profiling SQL settings from spark_queries.sql; applied only by profiling stage runner.
+    profiling_sql_conf:
+      spark.sql.sources.partitionColumnTypeInference.enabled: false
+      spark.sql.ansi.enabled: false
     master: yarn
     # Submit is cluster-only. Scripts reject deploy_mode=client.
     deploy_mode: cluster

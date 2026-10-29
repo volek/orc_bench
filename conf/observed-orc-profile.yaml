@@ -1,0 +1,143 @@
+observed_orc_profile:
+  source_partition: key=2026-06-28--09
+  representativeness: one_new_era_hour_only_not_whole_index
+  sources:
+    columns: column_profile_result.txt
+    orc_footer: orc_meta_result.txt
+  rows: 19159061
+  schema_column_order:
+  - metamodelHash
+  - session
+  - sourceSystem
+  - module
+  - userName
+  - metamodelVersion
+  - userLogin
+  - createdAt
+  - requestId
+  - userNode
+  - name
+  - id
+  - nodeId
+  - tags
+  - paramName
+  - paramValue
+  - paramOldValue
+  - archiveInternalId
+  - archiveInsertTime
+  - __time
+  columns:
+    session:
+      approx_distinct: 6604466
+    userLogin:
+      approx_distinct: 4853348
+      nulls: 22807
+      empty: 0
+    userName:
+      nulls: 22807
+      empty: 19136254
+    requestId:
+      nulls: 19159061
+    nodeId:
+      nulls: 0
+      empty: 19136254
+      approx_distinct: 1181
+    userNode:
+      approx_distinct: 1751628
+    createdAt:
+      approx_distinct: 3443901
+    id:
+      approx_distinct: 19492135
+      note: approximate distinct estimate exceeds row count; do not enforce as exact
+    archiveInternalId:
+      approx_distinct: 19806478
+      note: approximate distinct estimate exceeds row count; do not enforce as exact
+    metamodelVersion:
+      approx_distinct: 2
+      counts:
+      - 16391309
+      - 2767752
+    metamodelHash:
+      approx_distinct: 2
+      counts:
+      - 16391309
+      - 2767752
+  arrays:
+    tags:
+      elements: 57477183
+      length_quantiles_p50_p90_p99:
+      - 3
+      - 3
+      - 3
+      max_length: 3
+      approx_distinct_elements: 1257
+    paramName:
+      elements: 593161602
+      length_quantiles_p50_p90_p99:
+      - 32
+      - 39
+      - 39
+      max_length: 40
+      approx_distinct_elements: 50
+    paramValue:
+      elements: 593161602
+      null_elements: 57408762
+      length_quantiles_p50_p90_p99:
+      - 32
+      - 39
+      - 39
+      max_length: 40
+    paramOldValue:
+      elements: 593161602
+      null_elements: 593161602
+      length_quantiles_p50_p90_p99:
+      - 32
+      - 39
+      - 39
+      max_length: 40
+  json_row_length:
+    unit: characters_from_spark_length
+    p10: 1720
+    p50: 1976
+    p90: 2167
+    p99: 2176
+    p999: 2208
+    max: 2466
+    avg: 1923.2
+  orc:
+    file_count: 7
+    compressed_total_bytes: 5341262459
+    raw_data_size_bytes: 144428311475
+    compression: ZLIB
+    format_version: V_0_12
+    writer_identification: ORC_517 / ORC Java
+    row_index_stride: 10000
+    stripe_count: 620
+    avg_rows_per_stripe: 30902
+    avg_compressed_stripe_bytes: 8434171
+    file_sizes_bytes:
+    - 31395453
+    - 893366535
+    - 892172242
+    - 892729798
+    - 892347297
+    - 884051378
+    - 855199756
+    file_row_counts:
+    - 113885
+    - 3204944
+    - 3196483
+    - 3191788
+    - 3188139
+    - 3186015
+    - 3077807
+    observed_compressed_stripe_bytes_not_writer_stripe_target: true
+  unverified:
+  - duplicate_param_names
+  - full_50_parameter_name_catalog
+  - epk_position_distribution
+  - epk_cardinality
+  - timestamp_rowwise_equality
+  - physical_monotonic_sort_by_time
+  - writer_target_stripe_size
+  - monitoring_event_userLogin_null_conditional

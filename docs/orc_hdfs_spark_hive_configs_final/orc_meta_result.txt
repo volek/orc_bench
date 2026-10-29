@@ -1,0 +1,58 @@
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+Spark context Web UI available at http://pplos-audi00059.ipaint.sber.ru:4040
+Spark context available as 'sc' (master = local[1], app id = local-1792575028506).
+Spark session available as 'spark'.
+=== Файлов в /prom-secondary/archive/sources/CI02001608/CI02001608_CI00982781_SM_UKO/key=2026-06-28--09: 7
+
+=== По файлам: имя | байт | строк | stripes | строк в stripe (avg) | байт в stripe (avg) | сжатие
+  part__2026_06_28T09_00_00_012-V_1764762554661-16-38010.orc  31395453  113885  20  5694  1569259  ZLIB
+  part__2026_06_28T09_00_22_462-V_1764762554661-9-38011.orc  893366535  3204944  100  32049  8747754  ZLIB
+  part__2026_06_28T09_10_22_408-V_1764762554661-17-38016.orc  892172242  3196483  100  31965  8725767  ZLIB
+  part__2026_06_28T09_20_22_390-V_1764762554661-9-38021.orc  892729798  3191788  100  31918  8712077  ZLIB
+  part__2026_06_28T09_30_22_435-V_1764762554661-17-38026.orc  892347297  3188139  100  31881  8700640  ZLIB
+  part__2026_06_28T09_40_22_631-V_1764762554661-14-38031.orc  884051378  3186015  100  31860  8691676  ZLIB
+  part__2026_06_28T09_50_22_439-V_1764762554661-9-38036.orc  855199756  3077807  100  30778  8400095  ZLIB
+
+=== Сводка по 7 файлам
+  байт всего              : 5341262459
+  строк всего             : 19159061
+  raw data size (несжат.) : 144428311475
+  размер файла, байт      : min=31395453 avg=763037494 max=893366535
+  строк в файле           : min=113885 avg=2737009 max=3204944
+  stripes в файле         : min=20 avg=89 max=100  (всего 620)
+  строк в stripe          : min=5612 avg=30902 max=32626
+  размер stripe, байт     : min=1544968 avg=8434171 max=8908739
+  сжатие                  : ZLIB (блок 262144)
+  версия файла            : V_0_12
+  writer                  : ORC_517 / ORC Java 
+  row index stride        : 10000
+
+  схема: struct<metamodelHash:string,session:string,sourceSystem:string,module:string,userName:string,metamodelVersion:string,userLogin:string,createdAt:timestamp,requestId:string,userNode:string,name:string,id:string,nodeId:string,tags:array<string>,paramName:array<string>,paramValue:array<string>,paramOldValue:array<string>,archiveInternalId:string,archiveInsertTime:timestamp,__time:timestamp>
+
+=== Колонки, сумма по всем файлам (id, путь, тип, значений, есть null, суммарная длина строк, несжатый размер):
+      0                               STRUCT           19159061  false                                  
+      1  metamodelHash                STRING           19159061  false       1226179904       2835541028
+      2  session                      STRING           19159061  false       1226104358       2816381967
+      3  sourceSystem                 STRING           19159061  false        191590610       1800951734
+      4  module                       STRING           19159061  false        325704037       1935065161
+      5  userName                     STRING           19136254  true                 0       1607445336
+      6  metamodelVersion             STRING           19159061  false       1226179904       2835541028
+      7  userLogin                    STRING           19136254  true         252647671       1856216638
+      8  createdAt                    TIMESTAMP        19159061  false                         766362440
+      9  requestId                    STRING                  0  true                 0              588
+     10  userNode                     STRING           19159061  false        248113194       1839269856
+     11  name                         STRING           19159061  false        610370755       2203292015
+     12  id                           STRING           19159061  false        689726196       2299087320
+     13  nodeId                       STRING           19159061  false           570175       1609361124
+     14  tags                         LIST             19159061  false                        6973898204
+     15  tags[]                       STRING           57477183  false       2069256451                 
+     16  paramName                    LIST             19159061  false                       57020150036
+     17  paramName[]                  STRING          593161602  false       7477816752                 
+     18  paramValue                   LIST             19159061  false                       52044661724
+     19  paramValue[]                 STRING          535752840  true        7220667400                 
+     20  paramOldValue                LIST             19159061  false                          76636832
+     21  paramOldValue[]              STRING                  0  true                 0                 
+     22  archiveInternalId            STRING           19159061  false        689726196       2299087320
+     23  archiveInsertTime            TIMESTAMP        19159061  false                         766362440
+     24  __time                       TIMESTAMP        19159061  false                         766362440

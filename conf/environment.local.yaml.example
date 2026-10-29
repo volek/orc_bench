@@ -1,19 +1,12 @@
-# Copy to environment.local.yaml and fill null / override fields as needed.
-# Passed via: --env-override conf/environment.local.yaml
-#
-# Defaults from environment.yaml: deploy_mode=cluster only; first-trial executors 10×4×16g
-# (plan §8.1 — 6 DN / YARN 221184 MB / 67 vCores). Finalize after Pilot S trial on node
-# (CP10 B); fill the calibration checklist in docs/Запуск на Hadoop кластере.md §12.
-# Narrow pilot experiments: conf/pilot-s.yaml + scripts/run-pilot-s.sh.
+# Optional overrides of environment.yaml; prod_common is the current active sizing profile.
+# Copy to environment.local.yaml and pass via --env-override.
+# This is NOT an instruction to switch to layout_probe 10 x 4 x 16 GiB.
 environment:
   spark:
-    # cluster only — scripts reject deploy_mode=client
     deploy_mode: cluster
-    # First-trial values — replace after on-node calibration (§12 checklist):
-    executor_instances: 10
-    executor_cores: 4
-    executor_memory_gib: 16
-    # After trial (examples; leave commented until filled on node):
-    # executor_instances: <N>
-    # executor_cores: <C>
-    # executor_memory_gib: <M>
+    executor_instances: 4
+    executor_cores: 2
+    executor_memory_gib: 3
+    executor_memory_overhead_mib: 512
+    driver_cores: 1
+    driver_memory_gib: 2

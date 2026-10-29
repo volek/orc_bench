@@ -79,7 +79,10 @@ public final class QueryTemplate {
             params.putAll(suite.querySuite.defaults);
         }
         params.put("table", table);
-        params.put("module_dictionary_table", "module_dictionary");
+        // Hive JDBC looks up bench.module_dictionary. Spark temp views stay unqualified.
+        params.put("module_dictionary_table",
+                "hive_tez".equals(dialect) ? SchemaDdl.qualify(SchemaDdl.HIVE_DATABASE, "module_dictionary")
+                        : "module_dictionary");
         params.put("epk_dictionary_table", "epk_dictionary");
         params.put("date_dimension_table", "partition_dates");
         params.put("type_value", "A");

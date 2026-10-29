@@ -47,7 +47,8 @@ public final class ReportWriter {
         writeSummaryCsv(ResultStore.child(dir, "summary.csv"), aggregates);
         writeSkippedTsv(ResultStore.child(dir, "skipped.tsv"), skipped);
         if (finalCells != null && !finalCells.isEmpty()) {
-            writeFinalComparisonTsv(ResultStore.child(dir, "final_comparison.tsv"), finalCells, bestOrc);
+            writeFinalComparisonTsv(
+                    ResultStore.child(dir, "final_comparison.tsv"), finalCells, bestOrc, aggregates);
         }
         writeSummaryTxt(
                 ResultStore.child(dir, "SUMMARY.txt"),
@@ -111,9 +112,12 @@ public final class ReportWriter {
     }
 
     private static void writeFinalComparisonTsv(
-            String path, List<ExperimentInstance> finalCells, BestOrcChoice bestOrc) throws Exception {
+            String path,
+            List<ExperimentInstance> finalCells,
+            BestOrcChoice bestOrc,
+            List<AggregateStats> aggregates) throws Exception {
         StringBuilder sb = new StringBuilder();
-        sb.append("engineProfile\tengine\tlayoutPath\tqueries\tskipReason\n");
+        sb.append("engineProfile\tengine\tqueryId\tlayoutPath\tn\tp50Ms\tscanRatio\tresultHash\tskipReason\n");
         for (ExperimentInstance i : finalCells) {
             if (i == null) {
                 continue;
@@ -122,11 +126,39 @@ public final class ReportWriter {
             if (layout == null && bestOrc != null) {
                 layout = bestOrc.layoutPath;
             }
-            sb.append(nullSafe(i.experimentId)).append('\t')
-                    .append(nullSafe(i.engine)).append('\t')
-                    .append(nullSafe(layout)).append('\t')
-                    .append(i.queries == null ? 0 : i.queries.size()).append('\t')
-                    .append(nullSafe(i.skipReason)).append('\n');
+            boolean wroteQuery = false;
+            if (aggregates != null) {
+                for (AggregateStats a : aggregates) {
+                    if (a == null || a.concurrency != 1) {
+                        continue;
+                    }
+                    if (!nullSafe(i.experimentId).equals(nullSafe(a.experimentId))) {
+                        continue;
+                    }
+                    wroteQuery = true;
+                    sb.append(nullSafe(i.experimentId)).append('\t')
+                            .append(nullSafe(i.engine)).append('\t')
+                            .append(nullSafe(a.queryId)).append('\t')
+                            .append(nullSafe(layout)).append('\t')
+                            .append(a.n).append('\t')
+                            .append(String.format(Locale.ROOT, "%.2f", a.p50Ms)).append('\t')
+                            .append(a.scanRatio == null ? ""
+                                    : String.format(Locale.ROOT, "%.6f", a.scanRatio)).append('\t')
+                            .append(nullSafe(a.resultHash)).append('\t')
+                            .append(nullSafe(i.skipReason)).append('\n');
+                }
+            }
+            if (!wroteQuery) {
+                sb.append(nullSafe(i.experimentId)).append('\t')
+                        .append(nullSafe(i.engine)).append('\t')
+                        .append('\t')
+                        .append(nullSafe(layout)).append('\t')
+                        .append('\t')
+                        .append('\t')
+                        .append('\t')
+                        .append('\t')
+                        .append(nullSafe(i.skipReason)).append('\n');
+            }
         }
         ResultStore.writeUtf8(path, sb.toString());
     }

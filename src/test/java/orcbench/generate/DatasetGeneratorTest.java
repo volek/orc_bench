@@ -74,6 +74,34 @@ class DatasetGeneratorTest {
             assertNull(old, "paramOldValue elements must be null");
         }
         assertTrue(DatasetGenerator.validateRow(row, cfg.dataset).isEmpty());
+        for (String key : row.paramName) {
+            if (key.startsWith("UNNAMED_")) {
+                int n = Integer.parseInt(key.substring("UNNAMED_".length()));
+                assertTrue(n >= 1 && n <= DatasetGenerator.UNNAMED_FILLER_LIMIT, key);
+            }
+        }
+    }
+
+    @Test
+    void writerColumnOrderMatchesFooter() throws Exception {
+        java.nio.file.Path schema = java.nio.file.Paths.get("conf/schema.orc.txt");
+        String text = new String(java.nio.file.Files.readAllBytes(schema), "UTF-8");
+        java.util.List<String> expected = new java.util.ArrayList<String>();
+        for (String line : text.split("\n")) {
+            String t = line.trim();
+            if (t.isEmpty() || t.startsWith("struct") || t.equals(">")) {
+                continue;
+            }
+            int colon = t.indexOf(':');
+            if (colon > 0) {
+                expected.add(t.substring(0, colon).replace(",", ""));
+            }
+        }
+        org.apache.spark.sql.types.StructType written = SparkOrcGenerateBackend.eventSchema();
+        assertEquals(expected.size(), written.fields().length);
+        for (int i = 0; i < expected.size(); i++) {
+            assertEquals(expected.get(i), written.fields()[i].name(), "column " + i);
+        }
     }
 
     @Test

@@ -27,6 +27,15 @@ query_suite:
     raw_arrays: array<string>
     spark_array_index: element_at and array_position are 1-based; do not subtract 1 the way the archive SQL does
   sql_template_escaping: runner_must_escape_and_quote_values_by_dialect
+  # Spark array subscripts [] are 0-based; element_at() and array_position() are 1-based.
+  # Source uses paramValue[CAST(array_position(paramName, 'EPK_ID') - 1 AS INT)].
+  # Existing templates use element_at(paramValue, array_position(...)) and are equivalent for present keys.
+  spark_array_indexing:
+    array_subscript: zero_based
+    array_position: one_based
+    element_at: one_based
+    source_expression: "paramValue[CAST(array_position(paramName, 'EPK_ID') - 1 AS INT)]"
+    template_expression: "element_at(paramValue, array_position(paramName, 'EPK_ID'))"
   partition_scope:
     mode: external_partition_list
     key_column: key
@@ -37,7 +46,8 @@ query_suite:
     fallback_window_hours: 120
     fallback_note: groups without a single logged window use 120 hours, the dominant window in the log
   workload_mix:
-    note: shares are exact group counts over 1107 queries (2026-07-01..2026-09-30). Section 4.4 rounds the same mix.
+    note: shares are exact group counts over 1107 queries (2026-07-01..2026-09-30). Section 4.4 rounds the same 
+      mix.
     queries:
     - query: Q_SESSION_ILIKE
       share: 0.7904
@@ -90,7 +100,8 @@ query_suite:
     HYBRID: native queries
   queries:
   - id: Q_SESSION_ILIKE
-    description: Production session lookup. 79% of queries, 54% of time, about 4 rows (8 when OR of two sessions). CAST+ILIKE reads every row; bloom does not apply.
+    description: Production session lookup. 79% of queries, 54% of time, about 4 rows (8 when OR of two sessions). 
+      CAST+ILIKE reads every row; bloom does not apply.
     dialects:
     - spark_3_2
     representations:
@@ -114,7 +125,8 @@ query_suite:
       WHERE CAST(session AS STRING) LIKE '${session_id_outer}'
       ORDER BY `__time` DESC
   - id: Q_SESSION_EQ
-    description: Optimized session predicate. Equality can use a bloom on session and skip stripes. This is the lever from analysis §3.10, not the predicate prod sends today.
+    description: Optimized session predicate. Equality can use a bloom on session and skip stripes. This is the 
+      lever from analysis §3.10, not the predicate prod sends today.
     dialects:
     - spark_3_2
     - hive_tez
@@ -127,7 +139,8 @@ query_suite:
       WHERE session = '${session_id_outer}'
       ORDER BY `__time` DESC
   - id: Q_SESSION_EQ_NARROW
-    description: Same equality as Q_SESSION_EQ with a narrow projection, for the column-pruning contrast. Prod always selects every column.
+    description: Same equality as Q_SESSION_EQ with a narrow projection, for the column-pruning contrast. Prod 
+      always selects every column.
     dialects:
     - spark_3_2
     - hive_tez
@@ -140,7 +153,8 @@ query_suite:
       WHERE session = '${session_id_outer}'
       ORDER BY `__time` DESC
   - id: Q_EPK
-    description: EPK lookup on an extracted column. Native form for FLAT and HYBRID. Prod reads the parallel arrays, not this column.
+    description: EPK lookup on an extracted column. Native form for FLAT and HYBRID. Prod reads the parallel 
+      arrays, not this column.
     dialects:
     - spark_3_2
     representations:
@@ -154,7 +168,9 @@ query_suite:
         AND CAST(epk_id AS STRING) ILIKE '${epk_id}'
       ORDER BY `__time` DESC
   - id: Q_EPK_SPARK
-    description: Production EPK lookup on RAW_ARRAY. Archive SQL uses paramValue[ARRAY_POSITION(paramName, 'EPK_ID') - 1] because that dialect is 0-based. Spark element_at and array_position are 1-based, so this form does not subtract 1. EPK_ID exists only on FIND and LOGON.
+    description: Production EPK lookup on RAW_ARRAY. Archive SQL uses paramValue[ARRAY_POSITION(paramName, 
+      'EPK_ID') - 1] because that dialect is 0-based. Spark element_at and array_position are 1-based, so this form
+      does not subtract 1. EPK_ID exists only on FIND and LOGON.
     dialects:
     - spark_3_2
     representations:
@@ -183,7 +199,8 @@ query_suite:
         AND e.paramValue[p.pos] LIKE '${epk_id}'
       ORDER BY e.`__time` DESC
   - id: Q_EPK_MAP
-    description: Map representation of the EPK lookup. Spark uses ILIKE; run the Hive track with LIKE if ILIKE is rejected.
+    description: Map representation of the EPK lookup. Spark uses ILIKE; run the Hive track with LIKE if ILIKE is 
+      rejected.
     dialects:
     - spark_3_2
     representations:
@@ -196,7 +213,10 @@ query_suite:
         AND CAST(params['EPK_ID'] AS STRING) ILIKE '${epk_id}'
       ORDER BY `__time` DESC
   - id: Q_FULLTEXT
-    description: UI "search everywhere" expands to 16 OR predicates of CAST(col AS STRING) LIKE. The analysis names paramName, paramValue, tags and userNode and does not list the other 12. The list below is the string and array columns excluding timestamps and requestId, and is unconfirmed. Cast rendering differs by engine, so result hashes stay engine-local. 5% of queries and 23% of time.
+    description: UI "search everywhere" expands to 16 OR predicates of CAST(col AS STRING) LIKE. The analysis names
+      paramName, paramValue, tags and userNode and does not list the other 12. The list below is the string and 
+      array columns excluding timestamps and requestId, and is unconfirmed. Cast rendering differs by engine, so 
+      result hashes stay engine-local. 5% of queries and 23% of time.
     dialects:
     - spark_3_2
     - hive_tez
@@ -226,7 +246,8 @@ query_suite:
          OR CAST(metamodelHash AS STRING) LIKE '${fulltext_pattern}'
       ORDER BY `__time` DESC
   - id: Q_USERNODE
-    description: name plus userNode LIKE. Part of the 23-query group (2% of queries, 9.5% of time) that averages about 19 hours.
+    description: name plus userNode LIKE. Part of the 23-query group (2% of queries, 9.5% of time) that averages 
+      about 19 hours.
     dialects:
     - spark_3_2
     - hive_tez
@@ -254,7 +275,9 @@ query_suite:
         AND CAST(userLogin AS STRING) LIKE '${user_login}'
       ORDER BY `__time` DESC
   - id: Q_MODULE_NAME_EPK_FILE
-    description: module and name plus an external file of about 10800 EPK_ID values (~216 KiB). module is a constant, so it prunes nothing. The runner expands ${epk_id_list} from the file. Result is 350 thousand to 6.5 million rows. Typical window is 15 days; two logged queries used 128 days.
+    description: module and name plus an external file of about 10800 EPK_ID values (~216 KiB). module is a 
+      constant, so it prunes nothing. The runner expands ${epk_id_list} from the file. Result is 350 thousand to 
+      6.5 million rows. Typical window is 15 days; two logged queries used 128 days.
     dialects:
     - spark_3_2
     representations:
@@ -285,7 +308,8 @@ query_suite:
         AND e.paramValue[p.pos] IN (${epk_id_list})
       ORDER BY e.`__time` DESC
   - id: Q_OTHER_PARAM
-    description: Lookup of a real nested parameter other than EPK_ID. Template uses OPERATION_UID. Logged volume is 6 queries, 0-3 rows.
+    description: Lookup of a real nested parameter other than EPK_ID. Template uses OPERATION_UID. Logged volume is
+      6 queries, 0-3 rows.
     dialects:
     - spark_3_2
     representations:
@@ -298,7 +322,8 @@ query_suite:
         AND element_at(paramValue, array_position(paramName, 'OPERATION_UID')) ILIKE '${operation_uid}'
       ORDER BY `__time` DESC
   - id: Q_ABSENT_PARAM
-    description: Lookup of a parameter the index does not contain (STAFF_LOGIN and the six siblings in dataset.parameters.absent_from_index). Result is always empty. 13 queries, about 5% of logged time.
+    description: Lookup of a parameter the index does not contain (STAFF_LOGIN and the six siblings in 
+      dataset.parameters.absent_from_index). Result is always empty. 13 queries, about 5% of logged time.
     dialects:
     - spark_3_2
     representations:
@@ -311,7 +336,8 @@ query_suite:
         AND element_at(paramValue, array_position(paramName, 'STAFF_LOGIN')) ILIKE '${absent_param_value}'
       ORDER BY `__time` DESC
   - id: Q_UNFILTERED
-    description: No predicate. 7 queries over 9 days, about 2.3 million rows. Partition list is still applied outside SQL.
+    description: No predicate. 7 queries over 9 days, about 2.3 million rows. Partition list is still applied 
+      outside SQL.
     dialects:
     - spark_3_2
     - hive_tez
@@ -322,3 +348,8 @@ query_suite:
     sql: |
       SELECT * FROM ${table}
       ORDER BY `__time` DESC
+
+  # Profiling is separate from production workload_mix and cannot be assigned its weights.
+  profiling_suite_ref: profiling-suite.yaml
+  profiling_separate_from_workload_mix: true
+  observed_profile_ref: observed-orc-profile.yaml

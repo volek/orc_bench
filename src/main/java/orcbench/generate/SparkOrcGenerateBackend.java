@@ -174,54 +174,59 @@ public final class SparkOrcGenerateBackend implements GenerateBackend {
         }
     }
 
+    /**
+     * Footer order of {@code schema.orc.txt} for {@code key=2026-06-28--09}.
+     * Hive DDL is generated from that file. A different writer order makes a
+     * positional reader assign values to the wrong columns.
+     */
     static StructType eventSchema() {
         return new StructType(new StructField[]{
-                DataTypes.createStructField("userLogin", DataTypes.StringType, false),
-                DataTypes.createStructField("createdAt", DataTypes.TimestampType, false),
+                DataTypes.createStructField("metamodelHash", DataTypes.StringType, false),
                 DataTypes.createStructField("session", DataTypes.StringType, false),
-                DataTypes.createStructField("userNode", DataTypes.StringType, false),
+                DataTypes.createStructField("sourceSystem", DataTypes.StringType, false),
                 DataTypes.createStructField("module", DataTypes.StringType, false),
-                DataTypes.createStructField("name", DataTypes.StringType, false),
                 DataTypes.createStructField("userName", DataTypes.StringType, true),
                 DataTypes.createStructField("metamodelVersion", DataTypes.StringType, false),
+                DataTypes.createStructField("userLogin", DataTypes.StringType, false),
+                DataTypes.createStructField("createdAt", DataTypes.TimestampType, false),
+                DataTypes.createStructField("requestId", DataTypes.StringType, true),
+                DataTypes.createStructField("userNode", DataTypes.StringType, false),
+                DataTypes.createStructField("name", DataTypes.StringType, false),
+                DataTypes.createStructField("id", DataTypes.StringType, false),
+                DataTypes.createStructField("nodeId", DataTypes.StringType, true),
                 DataTypes.createStructField("tags", DataTypes.createArrayType(DataTypes.StringType), false),
-                DataTypes.createStructField("paramOldValue",
-                        DataTypes.createArrayType(DataTypes.StringType, true), true),
                 DataTypes.createStructField("paramName", DataTypes.createArrayType(DataTypes.StringType), false),
                 DataTypes.createStructField("paramValue", DataTypes.createArrayType(DataTypes.StringType), false),
+                DataTypes.createStructField("paramOldValue",
+                        DataTypes.createArrayType(DataTypes.StringType, true), true),
                 DataTypes.createStructField("archiveInternalId", DataTypes.StringType, false),
                 DataTypes.createStructField("archiveInsertTime", DataTypes.TimestampType, false),
-                DataTypes.createStructField("__time", DataTypes.TimestampType, false),
-                DataTypes.createStructField("id", DataTypes.StringType, false),
-                DataTypes.createStructField("sourceSystem", DataTypes.StringType, false),
-                DataTypes.createStructField("metamodelHash", DataTypes.StringType, false),
-                DataTypes.createStructField("nodeId", DataTypes.StringType, true),
-                DataTypes.createStructField("requestId", DataTypes.StringType, true)
+                DataTypes.createStructField("__time", DataTypes.TimestampType, false)
         });
     }
 
     static Row toSparkRow(EventRow e) {
         return RowFactory.create(
-                e.userLogin,
-                new Timestamp(e.createdAtMs),
+                e.metamodelHash,
                 e.session,
-                e.userNode,
+                e.sourceSystem,
                 e.module,
-                e.name,
                 e.userName,
                 e.metamodelVersion,
+                e.userLogin,
+                new Timestamp(e.createdAtMs),
+                e.requestId,
+                e.userNode,
+                e.name,
+                e.id,
+                e.nodeId,
                 toSeq(e.tags),
-                toSeqNullable(e.paramOldValue),
                 toSeq(e.paramName),
                 toSeq(e.paramValue),
+                toSeqNullable(e.paramOldValue),
                 e.archiveInternalId,
                 new Timestamp(e.archiveInsertTimeMs),
-                new Timestamp(e.timeMs),
-                e.id,
-                e.sourceSystem,
-                e.metamodelHash,
-                e.nodeId,
-                e.requestId
+                new Timestamp(e.timeMs)
         );
     }
 

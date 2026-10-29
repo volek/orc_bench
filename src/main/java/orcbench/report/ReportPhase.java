@@ -1,5 +1,6 @@
 package orcbench.report;
 
+import orcbench.engine.hive.TezCounterLog;
 import orcbench.io.ResultStore;
 import orcbench.layout.ExperimentExpander;
 import orcbench.metrics.MetricsStore;
@@ -75,6 +76,14 @@ public final class ReportPhase {
 
         List<AggregateStats> aggregates = MetricsStore.aggregate(results, slaMs);
         out.aggregateRows = aggregates.size();
+        for (RunResult r : results) {
+            if (r != null && r.concurrency > 1
+                    && TezCounterLog.invalidatesLoadMeasurement(r.errorMessage)) {
+                out.notes.add("concurrency load omitted: DAG_KILL or missing Tez session jar"
+                        + " (" + r.experimentId + "/" + r.queryId + ")");
+                break;
+            }
+        }
 
         List<String[]> skipRows = new ArrayList<String[]>();
         if (skipped != null) {
