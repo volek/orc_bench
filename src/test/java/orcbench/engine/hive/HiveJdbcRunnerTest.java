@@ -233,6 +233,52 @@ class HiveJdbcRunnerTest {
     }
 
     @Test
+    void flatLayoutSkipsPartitionDdl(@TempDir Path tmp) throws Exception {
+        Files.write(tmp.resolve("part-00000.orc"), new byte[]{1});
+        ExperimentInstance inst = hiveCell(tmp.toAbsolutePath().toString());
+        FakeHiveJdbcBackend fake = new FakeHiveJdbcBackend();
+        HiveJdbcRunner.runExperiment(fake, cfg, inst, stubSamples(), "flat", null);
+        for (String ddl : fake.executedDdl) {
+            assertFalse(ddl.contains("PARTITIONED BY"), ddl);
+            assertFalse(ddl.startsWith("MSCK"), ddl);
+        }
+    }
+
+    @Test
+    void partitionedLayoutKeepsMsck(@TempDir Path tmp) throws Exception {
+        Path part = tmp.resolve("key=2025-04-14--12");
+        Files.createDirectories(part);
+        Files.write(part.resolve("part-00000.orc"), new byte[]{1});
+        ExperimentInstance inst = hiveCell(tmp.toAbsolutePath().toString());
+        FakeHiveJdbcBackend fake = new FakeHiveJdbcBackend();
+        HiveJdbcRunner.runExperiment(fake, cfg, inst, stubSamples(), "parts", null);
+        boolean partitioned = false;
+        boolean msck = false;
+        for (String ddl : fake.executedDdl) {
+            if (ddl.contains("PARTITIONED BY (key STRING)")) {
+                partitioned = true;
+            }
+            if (ddl.startsWith("MSCK REPAIR TABLE")) {
+                msck = true;
+            }
+        }
+        assertTrue(partitioned, fake.executedDdl.toString());
+        assertTrue(msck, fake.executedDdl.toString());
+    }
+
+    private static ExperimentInstance hiveCell(String layout) {
+        ExperimentInstance inst = new ExperimentInstance();
+        inst.experimentId = "HIVE_TEZ_BASE";
+        inst.variantLabel = "HIVE_TEZ_BASE";
+        inst.engine = "hive_tez";
+        inst.layoutPath = layout;
+        inst.partitionColumns = Collections.singletonList("key");
+        inst.representation = "RAW_ARRAY";
+        inst.queries = Collections.singletonList("Q_SESSION_EQ");
+        return inst;
+    }
+
+    @Test
     void hashRowsMatchesSparkEquivalence() {
         String[] rows = new String[]{"a|1", "b|\\N"};
         assertEquals(

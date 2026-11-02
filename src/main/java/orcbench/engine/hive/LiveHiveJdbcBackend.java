@@ -91,10 +91,13 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         Statement st = connection.createStatement();
         try {
             enableQuotedIdentifiers(st);
-            st.execute("DROP TABLE IF EXISTS " + tableName);
-            st.execute(ddl);
+            executeDdl(st, "DROP TABLE IF EXISTS " + tableName);
+            executeDdl(st, ddl);
             if (repairPartitions) {
-                st.execute("MSCK REPAIR TABLE " + tableName);
+                // Default on Hive 3.1 is throw: one non-hidden file beside
+                // key= directories aborts repair, and JDBC sees only return code 1.
+                trySet(st, "hive.msck.path.validation=skip");
+                executeDdl(st, "MSCK REPAIR TABLE " + tableName);
             }
         } finally {
             st.close();
@@ -142,6 +145,48 @@ public final class LiveHiveJdbcBackend implements HiveJdbcBackend {
         // a dead container to the next statement on the same connection.
         trySet(st, "tez.am.container.reuse.enabled=false");
         trySet(st, "hive.prewarm.enabled=false");
+    }
+
+    private static void executeDdl(Statement st, String sql) throws Exception {
+        try {
+            st.execute(sql);
+        } catch (Exception ex) {
+            StringBuilder msg = new StringBuilder();
+            msg.append(ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            String log = joinLines(readQueryLog(st));
+            if (!log.isEmpty()) {
+                msg.append(" | hive log: ").append(log);
+            }
+            msg.append(" | sql: ").append(abbreviate(sql, 500));
+            throw new java.sql.SQLException(msg.toString(), ex);
+        }
+    }
+
+    private static String joinLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            if (line == null || line.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(line);
+            if (sb.length() > 2000) {
+                break;
+            }
+        }
+        return abbreviate(sb.toString(), 2000);
+    }
+
+    private static String abbreviate(String s, int max) {
+        if (s == null || s.length() <= max) {
+            return s == null ? "" : s;
+        }
+        return s.substring(0, max) + "...";
     }
 
     private static void trySet(Statement st, String assignment) {

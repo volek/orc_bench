@@ -3,6 +3,7 @@ package orcbench.engine.hive;
 import orcbench.engine.QueryTemplate;
 import orcbench.engine.QueryTemplate.BoundQuery;
 import orcbench.engine.QueryTemplate.RejectedQuery;
+import orcbench.io.HdfsPaths;
 import orcbench.io.ResultStore;
 import orcbench.engine.hive.HiveJdbcBackend.QueryExecResult;
 import orcbench.engine.spark.SparkQueryRunner;
@@ -239,13 +240,21 @@ public final class HiveJdbcRunner {
         }
 
         String schemaText = cfg.schemaText;
+        List<String> partitions = PartitionLayout.effectivePartitions(
+                inst.partitionColumns, HdfsPaths.listChildNames(layout));
+        if (inst.partitionColumns != null && !inst.partitionColumns.isEmpty()
+                && partitions.isEmpty()) {
+            System.out.println("[run] " + layout
+                    + " has ORC files at the table root, not key= directories;"
+                    + " registering " + table + " without PARTITIONED BY");
+        }
         String ddl = SchemaDdl.createExternalTableSql(
                 table,
                 schemaText,
                 layout,
-                inst.partitionColumns,
+                partitions,
                 SchemaDdl.representationExtras(inst.representation));
-        boolean repair = inst.partitionColumns != null && !inst.partitionColumns.isEmpty();
+        boolean repair = !partitions.isEmpty();
         backend.ensureExternalTable(table, ddl, repair);
         String refError = null;
         try {
